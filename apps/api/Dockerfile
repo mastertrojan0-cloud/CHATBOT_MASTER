@@ -22,10 +22,10 @@ RUN yarn workspace @flowdesk/engine build
 RUN yarn workspace @flowdesk/api build
 
 # Etapa 2: Runtime
-FROM node:20-alpine AS runner
+FROM node:20-slim AS runner
 
 # Install OpenSSL for Prisma
-RUN apk add --no-cache libssl1.1 libstdc++
+RUN apt-get update && apt-get install -y --no-install-recommends libssl3 libstdc++6 && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
@@ -48,4 +48,4 @@ ENV PORT=8080
 EXPOSE 8080
 
 # Start
-CMD ["node", "dist/apps/api/src/server.js"]
+CMD ["node", "apps/api/src/server.js"]
