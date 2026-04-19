@@ -12,7 +12,7 @@ COPY apps apps/
 # Install dependencies
 RUN yarn install --frozen-lockfile --network-timeout 300000
 
-# Generate Prisma client
+# Generate Prisma client for all targets (fresh)
 RUN yarn workspace @flowdesk/db prisma generate
 
 # Build packages
