@@ -47,5 +47,5 @@ ENV PORT=8080
 # Build timestamp: 2026-04-19
 EXPOSE 8080
 
-# Start
-CMD ["node", "apps/api/src/server.js"]
+# Start - WORKDIR is /app/apps/api, dist is at ./dist
+CMD ["node", "dist/apps/api/src/server.js"]
