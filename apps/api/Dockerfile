@@ -41,4 +41,4 @@ ENV PORT=8080
 EXPOSE 8080
 
 # Start
-CMD ["sh", "-c", "npx prisma migrate deploy && node src/server.js"]
+CMD ["node", "src/server.js"]
