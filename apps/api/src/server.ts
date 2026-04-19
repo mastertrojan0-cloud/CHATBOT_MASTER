@@ -1,3 +1,4 @@
+// FlowDesk API v1.1.0 - CORS fix
 import express, { Express, Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import {
