@@ -8,7 +8,9 @@ import { useAuthInit } from '@/hooks';
 import '@/index.css';
 
 function Root() {
-  // Inicializar autenticação
+  //Debug
+  console.log('Root rendering, API URL:', import.meta.env.VITE_API_URL);
+  
   useAuthInit();
 
   return (
