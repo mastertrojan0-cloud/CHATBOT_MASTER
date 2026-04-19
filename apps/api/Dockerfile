@@ -15,8 +15,8 @@ RUN yarn install --frozen-lockfile --network-timeout 300000
 # Generate Prisma client
 RUN yarn workspace @flowdesk/db prisma generate
 
-# Build TypeScript
-RUN npx tsc -p apps/api/tsconfig.json
+# Build all packages
+RUN yarn build
 
 # Etapa 2: Runtime
 FROM node:20-alpine AS runner
@@ -26,8 +26,9 @@ WORKDIR /app
 # Copy only necessary files
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/apps/api/dist ./apps/api/dist
-COPY --from=builder /app/packages packages/
+COPY --from=builder /app/packages ./packages
 COPY --from=builder /app/apps/api/package.json ./apps/api/package.json
+COPY --from=builder /app/package.json ./package.json
 
 # Install production dependencies only
 WORKDIR /app/apps/api
