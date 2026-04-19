@@ -87,7 +87,7 @@ const getFirstStep = (steps: FlowStep[]): FlowStep => {
     throw new Error("FlowStep[] cannot be empty.");
   }
 
-  return steps[0];
+  return steps[0]!;
 };
 
 const getStepById = (stepMap: Map<string, FlowStep>, stepId?: string): FlowStep => {
