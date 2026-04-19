@@ -36,25 +36,14 @@ app.use(loggerStartTime);
 app.use(loggerEndTime);
 
 // CORS
-app.use(
-  cors({
-    origin: (origin, callback) => {
-      const allowed = [
-        'https://chatbot-master-dashboard.vercel.app',
-        'http://localhost:5173',
-        'http://localhost:3000',
-      ]
-      if (!origin || allowed.includes(origin)) {
-        callback(null, true)
-      } else {
-        callback(null, true)
-      }
-    },
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
-  })
-);
+app.use(cors({
+  origin: (_origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
+    callback(null, true)
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key'],
+}));
 
 // Body parsing
 app.use(express.json({ limit: '10mb' }));
