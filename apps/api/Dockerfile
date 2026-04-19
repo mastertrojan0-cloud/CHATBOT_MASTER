@@ -37,6 +37,7 @@ RUN npm install --omit=dev --omit=peer
 # Environment
 ENV NODE_ENV=production
 ENV PORT=8080
+# Build timestamp: 2026-04-19
 EXPOSE 8080
 
 # Start
