@@ -1,0 +1,339 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+enum PlanType {
+  FREE
+  PRO
+}
+
+enum BusinessSegment {
+  CLINIC
+  DENTAL
+  REAL_ESTATE
+  RESTAURANT
+  ECOMMERCE
+  EDUCATION
+  LEGAL
+  BEAUTY
+  FITNESS
+  FINANCE
+  AUTOMOTIVE
+  OTHER
+}
+
+enum TenantUserRole {
+  OWNER
+  ADMIN
+  AGENT
+  VIEWER
+}
+
+enum FlowStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+enum FlowTriggerType {
+  KEYWORD
+  WELCOME
+  FALLBACK
+  MANUAL
+}
+
+enum ContactSource {
+  WHATSAPP
+  IMPORT
+  API
+  MANUAL
+  GOOGLE_SHEETS
+}
+
+enum ContactLifecycleStatus {
+  ACTIVE
+  INACTIVE
+  BLOCKED
+}
+
+enum ConversationStatus {
+  OPEN
+  WAITING_CUSTOMER
+  WAITING_AGENT
+  RESOLVED
+  CLOSED
+}
+
+enum MessageDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum MessageChannel {
+  WHATSAPP
+  SYSTEM
+}
+
+enum MessageType {
+  TEXT
+  IMAGE
+  AUDIO
+  VIDEO
+  DOCUMENT
+  TEMPLATE
+  INTERACTIVE
+  LOCATION
+  CONTACT
+  STICKER
+  UNKNOWN
+}
+
+enum MessageDeliveryStatus {
+  QUEUED
+  SENT
+  DELIVERED
+  READ
+  FAILED
+}
+
+enum LeadStatus {
+  NEW
+  QUALIFIED
+  NURTURING
+  WON
+  LOST
+  DISQUALIFIED
+}
+
+model Tenant {
+  id                        String         @id @default(uuid()) @db.Uuid
+  name                      String
+  slug                      String         @unique
+  plan                      PlanType       @default(FREE)
+  businessSegment           BusinessSegment
+  wahaSessionName           String
+  wahaApiKey                String?
+  wahaInstanceId            String?
+  monthlyConversationLimit  Int            @default(100)
+  monthlyMessageLimit       Int            @default(1000)
+  monthlyLeadLimit          Int            @default(100)
+  currentMonthUsage         Json?
+  isActive                  Boolean        @default(true)
+  
+  // Billing
+  stripeCustomerId          String?
+  stripeSubscriptionId     String?
+  stripePriceId            String?
+  planExpiresAt            DateTime?
+  paymentFailedCount       Int            @default(0)
+  
+  // Notifications
+  notifyEmail              String?
+  notifyPhone             String?
+  
+  createdAt                 DateTime       @default(now())
+  updatedAt                 DateTime       @updatedAt
+
+  users                     TenantUser[]
+  flows                     Flow[]
+  contacts                  Contact[]
+  conversations             Conversation[]
+  messages                  Message[]
+  leads                     Lead[]
+
+  @@index([plan, isActive])
+  @@index([businessSegment])
+  @@map("tenants")
+}
+
+model TenantUser {
+  id              String          @id @default(uuid()) @db.Uuid
+  tenantId        String          @db.Uuid
+  email           String
+  fullName        String
+  role            TenantUserRole  @default(AGENT)
+  isActive        Boolean         @default(true)
+  lastLoginAt     DateTime?
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  tenant          Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  assignedConversations Conversation[]
+
+  @@unique([tenantId, email])
+  @@index([tenantId, role, isActive])
+  @@index([tenantId, createdAt])
+  @@map("tenant_users")
+}
+
+model Flow {
+  id              String           @id @default(uuid()) @db.Uuid
+  tenantId        String           @db.Uuid
+  name            String
+  slug            String
+  description     String?
+  businessSegment BusinessSegment
+  status          FlowStatus       @default(DRAFT)
+  triggerType     FlowTriggerType  @default(MANUAL)
+  triggerValue    String?
+  version         Int              @default(1)
+  definition      Json
+  publishedAt     DateTime?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  conversations   Conversation[]
+  leads           Lead[]
+
+  @@unique([tenantId, slug])
+  @@index([tenantId, status])
+  @@index([tenantId, businessSegment, status])
+  @@index([tenantId, triggerType, triggerValue])
+  @@map("flows")
+}
+
+model Contact {
+  id                    String                  @id @default(uuid()) @db.Uuid
+  tenantId              String                  @db.Uuid
+  externalId            String?
+  whatsappPhone         String
+  whatsappPhoneE164     String
+  name                  String?
+  firstName             String?
+  lastName              String?
+  email                 String?
+  avatarUrl             String?
+  notes                 String?
+  tags                  String[]
+  customFields          Json?
+  source                ContactSource           @default(WHATSAPP)
+  lifecycleStatus       ContactLifecycleStatus  @default(ACTIVE)
+  lastInboundAt         DateTime?
+  lastOutboundAt        DateTime?
+  createdAt             DateTime                @default(now())
+  updatedAt             DateTime                @updatedAt
+
+  tenant                Tenant                  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  conversations         Conversation[]
+  messages              Message[]
+  leads                 Lead[]
+
+  @@unique([tenantId, whatsappPhoneE164])
+  @@unique([tenantId, externalId])
+  @@index([tenantId, lifecycleStatus])
+  @@index([tenantId, name])
+  @@index([tenantId, email])
+  @@index([tenantId, lastInboundAt])
+  @@map("contacts")
+}
+
+model Conversation {
+  id                    String              @id @default(uuid()) @db.Uuid
+  tenantId              String              @db.Uuid
+  contactId             String              @db.Uuid
+  flowId                String?             @db.Uuid
+  assignedUserId        String?             @db.Uuid
+  channelSessionId      String?
+  status                ConversationStatus  @default(OPEN)
+  startedAt             DateTime            @default(now())
+  lastMessageAt         DateTime?
+  closedAt              DateTime?
+  context               Json?
+  metadata              Json?
+  createdAt             DateTime            @default(now())
+  updatedAt             DateTime            @updatedAt
+
+  tenant                Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  contact               Contact             @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  flow                  Flow?               @relation(fields: [flowId], references: [id], onDelete: SetNull)
+  assignedUser          TenantUser?         @relation(fields: [assignedUserId], references: [id], onDelete: SetNull)
+  messages              Message[]
+  leads                 Lead[]
+
+  @@unique([tenantId, channelSessionId])
+  @@index([tenantId, contactId, status])
+  @@index([tenantId, assignedUserId, status])
+  @@index([tenantId, flowId])
+  @@index([tenantId, lastMessageAt])
+  @@map("conversations")
+}
+
+model Message {
+  id                    String                 @id @default(uuid()) @db.Uuid
+  tenantId              String                 @db.Uuid
+  contactId             String                 @db.Uuid
+  conversationId        String                 @db.Uuid
+  externalMessageId     String?
+  direction             MessageDirection
+  channel               MessageChannel         @default(WHATSAPP)
+  type                  MessageType            @default(TEXT)
+  deliveryStatus        MessageDeliveryStatus?
+  body                  String?
+  mediaUrl              String?
+  mimeType              String?
+  providerPayload       Json?
+  metadata              Json?
+  sentAt                DateTime?
+  deliveredAt           DateTime?
+  readAt                DateTime?
+  failedAt              DateTime?
+  createdAt             DateTime               @default(now())
+
+  tenant                Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  contact               Contact                @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  conversation          Conversation           @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, externalMessageId])
+  @@index([tenantId, conversationId, createdAt])
+  @@index([tenantId, contactId, createdAt])
+  @@index([tenantId, direction, createdAt])
+  @@index([tenantId, deliveryStatus])
+  @@map("messages")
+}
+
+model Lead {
+  id                          String        @id @default(uuid()) @db.Uuid
+  tenantId                    String        @db.Uuid
+  contactId                   String        @db.Uuid
+  conversationId              String?       @db.Uuid
+  flowId                      String?       @db.Uuid
+  name                        String?
+  email                       String?
+  phone                       String?
+  source                      ContactSource @default(WHATSAPP)
+  status                      LeadStatus    @default(NEW)
+  score                       Int           @default(0)
+  capturedData                Json?
+  qualificationNotes          String?
+  automationEnabled           Boolean       @default(true)
+  automationPaused            Boolean       @default(false)
+  automationQualified         Boolean       @default(false)
+  automationEscalatedToHuman  Boolean       @default(false)
+  isHot                       Boolean       @default(false)
+  isQualified                 Boolean       @default(false)
+  firstCapturedAt             DateTime      @default(now())
+  lastQualifiedAt             DateTime?
+  convertedAt                 DateTime?
+  createdAt                   DateTime      @default(now())
+  updatedAt                   DateTime      @updatedAt
+
+  tenant                      Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  contact                     Contact       @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  conversation                Conversation? @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  flow                        Flow?         @relation(fields: [flowId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, status, score])
+  @@index([tenantId, contactId])
+  @@index([tenantId, conversationId])
+  @@index([tenantId, flowId])
+  @@index([tenantId, isQualified, isHot])
+  @@index([tenantId, createdAt])
+  @@map("leads")
+}

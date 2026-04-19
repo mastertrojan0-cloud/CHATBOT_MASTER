@@ -1,0 +1,108 @@
+@import 'tailwindcss/base';
+@import 'tailwindcss/components';
+@import 'tailwindcss/utilities';
+
+@layer base {
+  html {
+    @apply scroll-smooth;
+  }
+
+  body {
+    @apply bg-dark-900 text-dark-100 font-body;
+  }
+}
+
+@layer components {
+  /* Cards */
+  .card {
+    @apply bg-dark-800 border border-dark-700 rounded-lg shadow-md;
+  }
+
+  .card-elevated {
+    @apply bg-dark-800 border border-dark-700 rounded-lg shadow-lg;
+  }
+
+  /* Badges */
+  .badge {
+    @apply inline-flex items-center px-sm py-xs rounded-md font-body text-body-sm font-medium;
+  }
+
+  .badge-brand {
+    @apply badge bg-brand-500/20 text-brand-300;
+  }
+
+  .badge-success {
+    @apply badge bg-green-500/20 text-green-300;
+  }
+
+  .badge-warning {
+    @apply badge bg-yellow-500/20 text-yellow-300;
+  }
+
+  .badge-error {
+    @apply badge bg-red-500/20 text-red-300;
+  }
+
+  .badge-neutral {
+    @apply badge bg-dark-700 text-dark-300;
+  }
+
+  /* Buttons */
+  .btn {
+    @apply inline-flex items-center justify-center px-md py-sm rounded-md font-body text-body-md font-medium transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-primary {
+    @apply btn bg-brand-600 text-white hover:bg-brand-700 active:bg-brand-800;
+  }
+
+  .btn-secondary {
+    @apply btn bg-dark-700 text-dark-100 hover:bg-dark-600 active:bg-dark-500;
+  }
+
+  .btn-outline {
+    @apply btn border border-dark-600 text-dark-100 hover:bg-dark-800 active:bg-dark-700;
+  }
+
+  .btn-ghost {
+    @apply btn text-brand-400 hover:bg-brand-500/10 active:bg-brand-500/20;
+  }
+
+  .btn-sm {
+    @apply btn px-sm py-xs text-body-sm;
+  }
+
+  .btn-lg {
+    @apply btn px-lg py-md text-body-lg;
+  }
+
+  /* Inputs */
+  .input {
+    @apply w-full px-md py-sm bg-dark-700 border border-dark-600 rounded-md text-dark-100 text-body-md placeholder-dark-400 transition-colors duration-200 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500/50 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  /* Metric Cards */
+  .metric-card {
+    @apply card p-lg space-y-md;
+  }
+
+  .metric-label {
+    @apply text-dark-400 text-body-sm uppercase tracking-wide;
+  }
+
+  .metric-value {
+    @apply text-display-sm font-display font-bold text-brand-400;
+  }
+
+  .metric-delta {
+    @apply text-body-sm font-medium;
+  }
+
+  .metric-delta-up {
+    @apply text-green-400;
+  }
+
+  .metric-delta-down {
+    @apply text-red-400;
+  }
+}
