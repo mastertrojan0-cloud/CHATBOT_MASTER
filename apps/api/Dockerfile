@@ -15,8 +15,11 @@ RUN yarn install --frozen-lockfile --network-timeout 300000
 # Generate Prisma client
 RUN yarn workspace @flowdesk/db prisma generate
 
-# Build all packages
-RUN yarn build
+# Build packages
+RUN yarn workspace @flowdesk/db build
+RUN yarn workspace @flowdesk/shared build
+RUN yarn workspace @flowdesk/engine build
+RUN yarn workspace @flowdesk/api build
 
 # Etapa 2: Runtime
 FROM node:20-alpine AS runner
