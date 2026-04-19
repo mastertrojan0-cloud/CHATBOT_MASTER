@@ -29,22 +29,22 @@ export const useAuthStore = create<AuthStore>((set) => ({
           const tenantData = tenantResponse.data;
           set({
             user: {
-              id: tenantData.userId,
-              email,
-              name: tenantData.name,
+              id: tenantData.id,
+              email: tenantData.owner?.email || email,
+              name: tenantData.owner?.fullName || tenantData.name,
               tenantId: tenantData.id,
             },
             tenant: {
               id: tenantData.id,
               name: tenantData.name,
-              businessName: tenantData.businessName,
+              businessName: tenantData.name,
               plan: tenantData.plan,
               usage: {
-                leadsPerMonth: 0,
-                leadsPerMonthLimit: tenantData.leadsPerMonthLimit,
-                messagesPerMonth: 0,
+                leadsPerMonth: tenantData.currentMonthUsage?.leads || 0,
+                leadsPerMonthLimit: tenantData.monthlyLeadLimit,
+                messagesPerMonth: tenantData.currentMonthUsage?.messages || 0,
               },
-              waConnected: tenantData.waConnected,
+              waConnected: tenantData.wahaConnected,
               waStatus: 'disconnected',
             },
           });
