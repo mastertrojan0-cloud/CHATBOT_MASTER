@@ -21,6 +21,9 @@ RUN yarn workspace @flowdesk/shared build
 RUN yarn workspace @flowdesk/engine build
 RUN yarn workspace @flowdesk/api build
 
+# Force regenerate Prisma after schema is updated
+RUN rm -rf node_modules/.prisma && yarn workspace @flowdesk/db prisma generate
+
 # Etapa 2: Runtime
 FROM node:20-slim AS runner
 
