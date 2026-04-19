@@ -1,11 +1,14 @@
 import type { FlowStep, PlanType } from "./engine";
 
 export type FlowSegment =
-  | "salao-barbearia"
-  | "restaurante"
-  | "loja-de-roupas"
-  | "autonomo"
-  | "comercio-geral";
+  | "SALAO_BARBEARIA"
+  | "RESTAURANTE"
+  | "LOJA_ROUPAS"
+  | "AUTONOMO"
+  | "COMERCIO_GERAL"
+  | "CLINIC"
+  | "DENTAL"
+  | "FITNESS";
 
 const createLeadCollectionSteps = (prefix: string): FlowStep[] => {
   const startId = `${prefix}-collect-name`;
@@ -217,11 +220,14 @@ const createRetailFlow = (): FlowStep[] => {
 };
 
 export const presetFlows: Record<FlowSegment, FlowStep[]> = {
-  "salao-barbearia": createSalonFlow(),
-  restaurante: createRestaurantFlow(),
-  "loja-de-roupas": createClothingFlow(),
-  autonomo: createFreelancerFlow(),
-  "comercio-geral": createRetailFlow(),
+  "SALAO_BARBEARIA": createSalonFlow(),
+  "RESTAURANTE": createRestaurantFlow(),
+  "LOJA_ROUPAS": createClothingFlow(),
+  "AUTONOMO": createFreelancerFlow(),
+  "COMERCIO_GERAL": createRetailFlow(),
+  "CLINIC": createFreelancerFlow(),
+  "DENTAL": createFreelancerFlow(),
+  "FITNESS": createFreelancerFlow(),
 };
 
 export const getPresetFlow = (segment: FlowSegment, plan?: PlanType): FlowStep[] => {

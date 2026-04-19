@@ -158,7 +158,7 @@ router.post(
 
       const businessSegment = segment 
         ? (segment.toUpperCase() as BusinessSegment)
-        : BusinessSegment.OTHER;
+        : BusinessSegment.CLINIC;
 
       const tenant = await prisma.tenant.create({
         data: {
