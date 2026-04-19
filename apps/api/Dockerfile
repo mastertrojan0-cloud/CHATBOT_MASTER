@@ -39,5 +39,5 @@ ENV NODE_ENV=production
 ENV PORT=8080
 EXPOSE 8080
 
-# Start server with ES module support for package.json "type": "module"
-CMD ["node", "--experimental-require-module", "apps/api/dist/apps/api/src/server.js"]
+# Start server  
+CMD ["node", "apps/api/dist/apps/api/src/server.js"]
