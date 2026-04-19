@@ -24,6 +24,9 @@ RUN yarn workspace @flowdesk/api build
 # Etapa 2: Runtime
 FROM node:20-alpine AS runner
 
+# Install OpenSSL for Prisma
+RUN apk add --no-cache libssl1.1 libstdc++
+
 WORKDIR /app
 
 # Copy only necessary files
