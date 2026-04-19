@@ -22,11 +22,19 @@ export const useAuthStore = create<AuthStore>((set) => ({
   setIsLoading: (isLoading) => set({ isLoading }),
   login: async (email: string, password: string) => {
     try {
+      console.log('[Auth] Iniciando login para:', email);
       const response = await apiClient.login(email, password);
+      console.log('[Auth] Resposta da API login:', response);
+      
       if (response.success) {
+        console.log('[Auth] Login bem-sucedido, obtendo tenant...');
         const tenantResponse = await apiClient.getTenant();
+        console.log('[Auth] Resposta da API tenant:', tenantResponse);
+        
         if (tenantResponse.success && tenantResponse.data) {
           const tenantData = tenantResponse.data;
+          console.log('[Auth] Dados do tenant:', tenantData);
+          
           set({
             user: {
               id: tenantData.id,
@@ -48,11 +56,18 @@ export const useAuthStore = create<AuthStore>((set) => ({
               waStatus: 'disconnected',
             },
           });
+          console.log('[Auth] Login completado com sucesso');
           return { success: true };
+        } else {
+          console.log('[Auth] Erro: Resposta do tenant não contém dados válidos', tenantResponse);
+          return { success: false, error: 'Falha ao obter dados do tenant' };
         }
+      } else {
+        console.log('[Auth] Erro: Login retornou success=false', response);
+        return { success: false, error: response.error?.message || 'Login failed' };
       }
-      return { success: false, error: response.error?.message || 'Login failed' };
     } catch (error) {
+      console.error('[Auth] Exceção no login:', error);
       return { success: false, error: 'Login failed' };
     }
   },
