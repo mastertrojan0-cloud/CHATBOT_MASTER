@@ -9,25 +9,7 @@ import RegisterPage from '@/pages/RegisterPage';
 
 const rootRoute = new RootRoute({
   component: ({ children }) => {
-    try {
-      const token = typeof window !== 'undefined' ? localStorage.getItem('authToken') : null;
-      const path = typeof window !== 'undefined' ? window.location.pathname : '';
-      const isAuthPage = path === '/login' || path === '/register';
-      
-      if (!token && !isAuthPage && typeof window !== 'undefined') {
-        window.location.href = '/login';
-        return null;
-      }
-      
-      if (token && isAuthPage && typeof window !== 'undefined') {
-        window.location.href = '/';
-        return null;
-      }
-      
-      return token ? <Layout>{children}</Layout> : <>{children}</>;
-    } catch {
-      return <>{children}</>;
-    }
+    return <>{children}</>;
   },
 });
 
