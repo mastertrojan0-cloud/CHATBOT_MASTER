@@ -3,20 +3,12 @@ import { NavLink, useNavigate } from 'react-router-dom'
 import { LayoutDashboard, Users, MessageSquare, Settings, LogOut } from 'lucide-react'
 import { useAuthStore } from '@/stores/authStore'
 
-const navItems = [
-  { label: 'Dashboard', to: '/dashboard', icon: LayoutDashboard },
-  { label: 'Leads', to: '/leads', icon: Users },
-  { label: 'WhatsApp', to: '/connect', icon: MessageSquare },
-  { label: 'Configurações', to: '/settings', icon: Settings },
-]
-
 export default function Sidebar() {
   const navigate = useNavigate()
-  const logout = useAuthStore((state) => state.logout)
   const tenant = useAuthStore((state) => state.tenant)
 
   const handleLogout = async () => {
-    await logout()
+    await useAuthStore.getState().logout()
     navigate('/login', { replace: true })
   }
 
@@ -37,25 +29,61 @@ export default function Sidebar() {
       </div>
 
       <nav className="flex-1 p-md space-y-xs">
-        {navItems.map((item) => {
-          const Icon = item.icon
-          return (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              className={({ isActive }) =>
-                `flex items-center gap-sm rounded-md px-md py-sm text-body-md transition-colors ${
-                  isActive
-                    ? 'bg-brand-500/20 text-brand-300 border border-brand-500/30'
-                    : 'text-dark-300 hover:bg-dark-700 hover:text-dark-100 border border-transparent'
-                }`
-              }
-            >
-              <Icon className="w-5 h-5" />
-              <span>{item.label}</span>
-            </NavLink>
-          )
-        })}
+        <NavLink
+          to="/dashboard"
+          className={({ isActive }) =>
+            `flex items-center gap-sm rounded-md px-md py-sm text-body-md transition-colors ${
+              isActive
+                ? 'bg-brand-500/20 text-brand-300 border border-brand-500/30'
+                : 'text-dark-300 hover:bg-dark-700 hover:text-dark-100 border border-transparent'
+            }`
+          }
+        >
+          <LayoutDashboard className="w-5 h-5" />
+          <span>Dashboard</span>
+        </NavLink>
+
+        <NavLink
+          to="/leads"
+          className={({ isActive }) =>
+            `flex items-center gap-sm rounded-md px-md py-sm text-body-md transition-colors ${
+              isActive
+                ? 'bg-brand-500/20 text-brand-300 border border-brand-500/30'
+                : 'text-dark-300 hover:bg-dark-700 hover:text-dark-100 border border-transparent'
+            }`
+          }
+        >
+          <Users className="w-5 h-5" />
+          <span>Leads</span>
+        </NavLink>
+
+        <NavLink
+          to="/connect"
+          className={({ isActive }) =>
+            `flex items-center gap-sm rounded-md px-md py-sm text-body-md transition-colors ${
+              isActive
+                ? 'bg-brand-500/20 text-brand-300 border border-brand-500/30'
+                : 'text-dark-300 hover:bg-dark-700 hover:text-dark-100 border border-transparent'
+            }`
+          }
+        >
+          <MessageSquare className="w-5 h-5" />
+          <span>WhatsApp</span>
+        </NavLink>
+
+        <NavLink
+          to="/settings"
+          className={({ isActive }) =>
+            `flex items-center gap-sm rounded-md px-md py-sm text-body-md transition-colors ${
+              isActive
+                ? 'bg-brand-500/20 text-brand-300 border border-brand-500/30'
+                : 'text-dark-300 hover:bg-dark-700 hover:text-dark-100 border border-transparent'
+            }`
+          }
+        >
+          <Settings className="w-5 h-5" />
+          <span>Configurações</span>
+        </NavLink>
       </nav>
 
       <div className="border-t border-dark-700 p-md">
