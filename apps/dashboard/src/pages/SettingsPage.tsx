@@ -307,7 +307,7 @@ export default function SettingsPage() {
             Integracoes disponiveis no plano Pro
           </p>
           <button className="mt-2 text-xs text-brand-400 underline">
-            Fazer upgrade ->
+            Fazer upgrade {'->'}
           </button>
         </div>
       )}
