@@ -14,17 +14,10 @@ class ApiClient {
         'Content-Type': 'application/json',
       },
     });
+  }
 
-    this.client.interceptors.request.use((config) => {
-      const token = sessionStorage.getItem('flowdesk_access') || useAuthStore.getState().token || '';
-
-      if (token) {
-        config.headers = config.headers || {};
-        (config.headers as any)['Authorization'] = `Bearer ${token}`;
-      }
-
-      return config;
-    }, (error) => Promise.reject(error));
+  get interceptors() {
+    return this.client.interceptors;
   }
 
   // Auth
@@ -183,3 +176,14 @@ class ApiClient {
 }
 
 export const apiClient = new ApiClient();
+
+apiClient.interceptors.request.use((config) => {
+  const token = sessionStorage.getItem('flowdesk_access') || useAuthStore.getState().token || '';
+  console.log('[Interceptor] Token:', token?.substring(0, 20));
+  console.log('[Interceptor] URL:', config.url);
+  if (token) {
+    config.headers = config.headers || {};
+    (config.headers as any)['Authorization'] = `Bearer ${token}`;
+  }
+  return config;
+}, (error) => Promise.reject(error));
