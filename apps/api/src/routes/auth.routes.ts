@@ -1,10 +1,41 @@
 import { Router, Response, Request } from 'express';
-import { publicLimiter } from '../middleware';
+import { z } from 'zod';
+import rateLimit from 'express-rate-limit';
+import { publicLimiter, validate } from '../middleware';
 import { supabase } from '../config/supabase';
 import { prisma } from '@flowdesk/db';
 import { PlanType, BusinessSegment, TenantUserRole } from '@prisma/client';
 
 const router = Router();
+
+// Schemas de validação
+const loginSchema = z.object({
+  email: z.string().email('Email inválido'),
+  password: z.string().min(1, 'Senha é obrigatória'),
+});
+
+const registerSchema = z.object({
+  email: z.string().email('Email inválido'),
+  password: z.string().min(6, 'Senha deve ter ao menos 6 caracteres'),
+  businessName: z.string().min(2, 'Nome do negócio deve ter ao menos 2 caracteres'),
+  fullName: z.string().optional(),
+  segment: z.string().optional(),
+});
+
+// Rate limiter específico para auth
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutos
+  max: 10, // 10 requisições por IP
+  message: {
+    success: false,
+    error: {
+      code: 'TOO_MANY_REQUESTS',
+      message: 'Muitas tentativas. Tente novamente em 15 minutos.',
+    },
+  },
+  standardHeaders: false,
+  legacyHeaders: false,
+});
 
 function generateSlug(text: string): string {
   const normalized = text
@@ -31,21 +62,11 @@ function generateUniqueSlug(baseSlug: string, existingSlugs: string[]): string {
  */
 router.post(
   '/login',
-  publicLimiter,
+  authLimiter,
+  validate(loginSchema),
   async (req: Request, res: Response) => {
     try {
       const { email, password } = req.body;
-
-      if (!email || !password) {
-        res.status(400).json({
-          success: false,
-          error: {
-            code: 'INVALID_CREDENTIALS',
-            message: 'Email and password are required',
-          },
-        });
-        return;
-      }
 
       const { data, error } = await supabase.auth.signInWithPassword({
         email,
@@ -94,20 +115,10 @@ router.post(
  */
 router.post(
   '/register',
-  publicLimiter,
+  authLimiter,
+  validate(registerSchema),
   async (req: Request, res: Response) => {
     const { email, password, businessName, fullName, segment } = req.body;
-
-    if (!email || !password) {
-      res.status(400).json({
-        success: false,
-        error: {
-          code: 'INVALID_CREDENTIALS',
-          message: 'Email and password are required',
-        },
-      });
-      return;
-    }
 
     let supabaseUserId: string | null = null;
 

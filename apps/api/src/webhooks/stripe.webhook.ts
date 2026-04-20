@@ -4,6 +4,7 @@ import { stripe, STRIPE_PLANS } from '../config/stripe';
 import { prisma } from '@flowdesk/db';
 import { PlanType } from '@prisma/client';
 import { emailService } from '../services/email.service';
+import { invalidateTenantCache } from '../middleware';
 
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || '';
 
@@ -58,6 +59,9 @@ export async function stripeWebhookHandler(req: Request, res: Response): Promise
           },
         });
 
+        // Invalidate tenant cache to apply new plan immediately
+        invalidateTenantCache(tenantId);
+
         console.log(`Tenant ${tenantId} upgraded to PRO`);
         break;
       }
@@ -83,6 +87,9 @@ export async function stripeWebhookHandler(req: Request, res: Response): Promise
             planExpiresAt: null,
           },
         });
+
+        // Invalidate tenant cache to apply downgrade immediately
+        invalidateTenantCache(tenant.id);
 
         console.log(`Tenant ${tenant.id} downgraded to FREE (subscription cancelled)`);
         break;

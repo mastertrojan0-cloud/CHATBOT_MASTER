@@ -1,8 +1,9 @@
 /**
  * Export todos os middlewares
  */
-export { authMiddleware, requireAuth, requirePro } from './auth.middleware';
+export { authMiddleware, requireAuth, requirePro, invalidateTenantCache } from './auth.middleware';
 export type { AuthRequest } from '../types';
+export { validate } from './validate.middleware';
 export {
   publicLimiter,
   webhookLimiter,

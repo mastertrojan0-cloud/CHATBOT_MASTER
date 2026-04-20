@@ -1,6 +1,7 @@
 // FlowDesk API v1.1.0 - CORS fix
 import express, { Express, Request, Response, NextFunction } from 'express';
 import cors from 'cors';
+import compression from 'compression';
 import {
   authMiddleware,
   publicLimiter,
@@ -30,6 +31,9 @@ setupMorganTokens();
 
 // Request ID
 app.use(requestIdMiddleware);
+
+// HTTP compression
+app.use(compression() as any);
 
 // Logging
 app.use(morganMiddleware);
