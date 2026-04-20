@@ -26,8 +26,25 @@ export default function DashboardPage() {
   const { data: topInterests, isLoading: interestsLoading } = useTopInterests();
   const { tenant } = useAuthStore();
 
+  const metricsData = (metrics as any)?.data || metrics || {};
+  const safeTopInterests = Array.isArray((topInterests as any)?.data)
+    ? (topInterests as any).data
+    : Array.isArray(topInterests)
+      ? topInterests
+      : [];
+  const safeLeadsByDay = Array.isArray((leadsByDay as any)?.data)
+    ? (leadsByDay as any).data
+    : Array.isArray(leadsByDay)
+      ? leadsByDay
+      : [];
+  const chartLeadsByDay = safeLeadsByDay.map((item: any) => ({
+    ...item,
+    leads: typeof item.leads === 'number' ? item.leads : (item.count || 0),
+  }));
+  const safeRecentLeads = Array.isArray(metricsData?.recentLeads) ? metricsData.recentLeads : [];
+
   const usagePercentage = tenant
-    ? (tenant.usage.leadsPerMonth / tenant.usage.leadsPerMonthLimit) * 100
+    ? (tenant.usage.leadsPerMonth / (tenant.usage.leadsPerMonthLimit || 1)) * 100
     : 0;
 
   return (
@@ -45,7 +62,7 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-lg">
         <MetricCard
           label="Leads Hoje"
-          value={metrics?.leadsToday || 0}
+          value={metricsData?.leadsToday || 0}
           icon={<Users className="w-6 h-6" />}
           delta={{
             value: 12,
@@ -54,17 +71,17 @@ export default function DashboardPage() {
         />
         <MetricCard
           label="Leads Este Mês"
-          value={metrics?.leadsMonth || 0}
+          value={metricsData?.leadsMonth || 0}
           icon={<TrendingUp className="w-6 h-6" />}
         />
         <MetricCard
           label="Mensagens"
-          value={metrics?.messagesThisMonth || 0}
+          value={metricsData?.messagesThisMonth || metricsData?.msgCountMonth || 0}
           icon={<MessageSquare className="w-6 h-6" />}
         />
         <MetricCard
           label="Taxa de Conversão"
-          value={`${(metrics?.conversionRate || 0).toFixed(1)}%`}
+          value={`${(metricsData?.conversionRate || 0).toFixed(1)}%`}
         />
       </div>
 
@@ -79,7 +96,7 @@ export default function DashboardPage() {
               </div>
             ) : (
               <ResponsiveContainer width="100%" height={300}>
-                <AreaChart data={leadsByDay}>
+                <AreaChart data={chartLeadsByDay}>
                   <defs>
                     <linearGradient id="colorLeads" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="#22c55e" stopOpacity={0.8} />
@@ -121,7 +138,7 @@ export default function DashboardPage() {
             {interestsLoading ? (
               <p className="text-dark-400">Carregando...</p>
             ) : (
-              topInterests?.map((interest: any) => (
+              safeTopInterests.map((interest: any) => (
                 <div key={interest.name} className="flex items-center justify-between">
                   <div className="flex-1">
                     <p className="text-body-md text-dark-100 font-medium">{interest.name}</p>
@@ -169,7 +186,7 @@ export default function DashboardPage() {
               <TableHead textAlign="right">Score</TableHead>
             </TableHeader>
             <TableBody>
-              {metrics?.recentLeads?.map((lead: any) => (
+              {safeRecentLeads.map((lead: any) => (
                 <TableRow key={lead.id}>
                   <TableCell>{lead.name}</TableCell>
                   <TableCell>{lead.phone}</TableCell>
