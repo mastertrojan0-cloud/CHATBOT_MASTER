@@ -10,10 +10,11 @@ import LeadsPage from '@/pages/LeadsPage'
 import ConnectPage from '@/pages/ConnectPage'
 import SettingsPage from '@/pages/SettingsPage'
 import Sidebar from '@/components/Sidebar'
+import { useAuthStore } from '@/stores/authStore'
 import '@/index.css'
 
 function PrivateLayout() {
-  const token = sessionStorage.getItem('flowdesk_access')
+  const token = useAuthStore((state) => state.token)
   if (!token) return <Navigate to="/login" replace />
   return (
     <div className="flex h-screen bg-dark-900">

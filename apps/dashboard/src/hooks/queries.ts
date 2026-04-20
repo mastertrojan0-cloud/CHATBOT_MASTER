@@ -5,6 +5,7 @@ export function useDashboardMetrics() {
   return useQuery({
     queryKey: ['metrics', 'dashboard'],
     queryFn: () => api.get('/metrics'),
+    staleTime: 1000 * 60,
     refetchInterval: 1000 * 60,
   });
 }
@@ -54,6 +55,8 @@ export function useWAHASession(enabled: boolean = true) {
       return result.data;
     },
     enabled,
+    retryOnMount: false,
+    refetchOnWindowFocus: false,
     refetchInterval: enabled ? 1000 * 3 : false,
   });
 }
@@ -75,6 +78,8 @@ export function useWAHAStatus(enabled: boolean = true) {
     queryKey: ['waha', 'status'],
     queryFn: () => api.get('/sessions/status'),
     enabled,
+    retryOnMount: false,
+    refetchOnWindowFocus: false,
     refetchInterval: enabled ? 1000 * 3 : false,
   });
 }

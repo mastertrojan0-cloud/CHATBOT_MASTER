@@ -1,15 +1,37 @@
 import axios from 'axios'
+import { useAuthStore } from '@/stores/authStore'
 
 const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api'
+let isHandling401 = false
 
 function getToken(): string {
-  return sessionStorage.getItem('flowdesk_access') || ''
+  return useAuthStore.getState().token || ''
 }
 
 function authHeaders(): Record<string, string> {
   const token = getToken()
   return token ? { Authorization: `Bearer ${token}` } : {}
 }
+
+axios.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    if (error?.response?.status === 401 && !isHandling401) {
+      const currentToken = useAuthStore.getState().token
+
+      if (currentToken) {
+        isHandling401 = true
+        try {
+          await useAuthStore.getState().logout()
+        } finally {
+          window.location.replace('/login')
+        }
+      }
+    }
+
+    return Promise.reject(error)
+  }
+)
 
 export const api = {
   get: (url: string, params?: Record<string, unknown>) =>
