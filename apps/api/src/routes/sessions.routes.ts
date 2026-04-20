@@ -93,21 +93,38 @@ router.post(
 
       const sessionName = getSessionNameFromTenant(tenant.wahaSessionName);
 
+      // Check if session exists, create if not
+      const existingSession = await wahaService.getSession(sessionName);
+
+      if (!existingSession.session) {
+        try {
+          await wahaService.createSession(sessionName);
+        } catch (error: any) {
+          // Session may already exist, continue
+          console.log('Create session:', error.response?.data?.message || 'created');
+        }
+      }
+
       try {
         await wahaService.startSession(sessionName);
       } catch (error: any) {
-        console.log('Start session error:', error.response?.data || error.message);
+        console.log('Start session:', error.response?.data?.message || error.message);
       }
 
-      const webhookBaseUrl = process.env.WAHA_WEBHOOK_BASE_URL 
-        || process.env.RAILWAY_STATIC_URL 
-        || process.env.APP_URL 
+      // Set webhook (optional, don't fail if WAHA doesn't support it)
+      const webhookBaseUrl = process.env.WAHA_WEBHOOK_BASE_URL
+        || process.env.RAILWAY_STATIC_URL
+        || process.env.APP_URL
         || 'http://localhost:3333';
-      
-      await wahaService.setWebhook(
-        sessionName, 
-        `${webhookBaseUrl}/api/webhooks/waha/${sessionName}`
-      );
+
+      try {
+        await wahaService.setWebhook(
+          sessionName,
+          `${webhookBaseUrl}/api/webhooks/waha/${sessionName}`
+        );
+      } catch (error: any) {
+        console.log('Set webhook:', error.response?.data?.message || 'skipped');
+      }
 
       await prisma.tenant.update({
         where: { id: req.tenantId },
