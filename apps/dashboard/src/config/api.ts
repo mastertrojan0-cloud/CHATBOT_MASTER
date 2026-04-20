@@ -18,16 +18,13 @@ class ApiClient {
     this.client.interceptors.request.use((config) => {
       const token = sessionStorage.getItem('flowdesk_access') || useAuthStore.getState().token || '';
 
-      if (!config.headers) {
-        config.headers = {};
-      }
-
       if (token) {
-        (config.headers as any).Authorization = `Bearer ${token}`;
+        config.headers = config.headers || {};
+        (config.headers as any)['Authorization'] = `Bearer ${token}`;
       }
 
       return config;
-    });
+    }, (error) => Promise.reject(error));
   }
 
   // Auth
@@ -132,6 +129,11 @@ class ApiClient {
   // WAHA
   async getWAHAStatus() {
     const { data } = await this.client.get('/sessions/status');
+    return data;
+  }
+
+  async getCurrentWAHASession() {
+    const { data } = await this.client.get('/sessions/current');
     return data;
   }
 

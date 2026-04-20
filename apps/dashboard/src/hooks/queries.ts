@@ -50,7 +50,7 @@ export function useWAHASession(enabled: boolean = true) {
   return useQuery({
     queryKey: ['waha', 'session'],
     queryFn: async () => {
-      const { data } = await apiClient.client.get('/sessions/current');
+      const { data } = await apiClient.getCurrentWAHASession();
       return data.data;
     },
     enabled,
