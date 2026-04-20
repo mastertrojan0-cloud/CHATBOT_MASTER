@@ -105,7 +105,7 @@ export async function stripeWebhookHandler(req: Request, res: Response): Promise
         });
 
         if (!tenant) {
-          console.error('No tenant found for customer', customerId);
+          logger.error({ customerId }, 'No tenant found for customer');
           return;
         }
 
@@ -176,6 +176,6 @@ export async function stripeWebhookHandler(req: Request, res: Response): Promise
         console.log(`Unhandled event type: ${event.type}`);
     }
   } catch (error) {
-    console.error('Error processing webhook:', error);
+    logger.error({ error }, 'Error processing webhook');
   }
 }

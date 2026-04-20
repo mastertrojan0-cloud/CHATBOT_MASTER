@@ -233,26 +233,7 @@ router.get(
   '/stats',
   authenticatedLimiter,
   requireAuth,
-  async (req: AuthRequest, res: Response) => {
-    try {
-      // Usar controller real
-      const stats = await LeadsController.getStats(req.tenantId!);
-
-      res.json({
-        success: true,
-        data: stats,
-      });
-    } catch (error) {
-      console.error('Error fetching stats:', error);
-      res.status(500).json({
-        success: false,
-        error: {
-          code: 'FETCH_STATS_ERROR',
-          message: 'Failed to fetch stats',
-        },
-      });
-    }
-  }
+  async (req: AuthRequest, res: Response) => LeadsController.getStatsHandler(req, res)
 );
 
 /**

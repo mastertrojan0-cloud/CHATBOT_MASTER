@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { AuthRequest, LeadFilters, Lead } from '../types';
 import { prisma } from '@flowdesk/db';
 import { PlanType, LeadStatus } from '@prisma/client';
+import { sendSuccess, sendError } from '../lib/response';
 
 /**
  * Controller para gerenciar leads
@@ -145,18 +146,17 @@ export class LeadsController {
       };
     } catch (error) {
       console.error('Error fetching stats:', error);
-      return {
-        leadsToday: 0,
-        leadsMonth: 0,
-        leadsTotal: 0,
-        conversionRate: 0,
-        msgCountMonth: 0,
-        msgLimit: 200,
-        contactCount: 0,
-        contactLimit: 50,
-        topInterests: [],
-        leadsByDay: [],
-      };
+      throw error;
+    }
+  }
+
+  static async getStatsHandler(req: AuthRequest, res: Response): Promise<void> {
+    try {
+      const stats = await LeadsController.getStats(req.tenantId!);
+      sendSuccess(res, stats);
+    } catch (error) {
+      console.error('Error fetching stats:', error);
+      sendError(res, 'Failed to fetch stats', 'FETCH_STATS_ERROR', 500);
     }
   }
 

@@ -4,6 +4,14 @@ export function sendSuccess<T>(res: Response, data: T, status = 200) {
   return res.status(status).json({ success: true, data })
 }
 
-export function sendError(res: Response, message: string, code: string, status = 400) {
-  return res.status(status).json({ success: false, error: { code, message } })
+export function sendError(
+  res: Response,
+  message: string,
+  code = 'ERROR',
+  status = 400
+) {
+  return res.status(status).json({
+    success: false,
+    error: { code, message },
+  })
 }

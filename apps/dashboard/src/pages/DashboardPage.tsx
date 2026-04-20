@@ -48,15 +48,19 @@ export default function DashboardPage() {
 
   return (
     <div className="p-lg space-y-lg">
-      {/* Error Banner */}
-      {(metricsError || leadsError || interestsError) && (
-        <div className="bg-red-900/20 border border-red-500 rounded p-4 mb-4">
-          <div className="flex items-start gap-3">
-            <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
-            <p className="text-red-400 text-sm">
-              Erro ao carregar métricas. Verifique sua conexão e tente novamente.
-            </p>
-          </div>
+      {metricsError && (
+        <div className="bg-red-900/20 border border-red-500/50 rounded-lg p-4 mb-6 flex items-center gap-3">
+          <span className="text-red-400 text-sm">
+            ⚠️ Erro ao carregar métricas. Verifique sua conexão.
+          </span>
+        </div>
+      )}
+
+      {leadsError && (
+        <div className="bg-red-900/20 border border-red-500/50 rounded-lg p-4 mb-6 flex items-center gap-3">
+          <span className="text-red-400 text-sm">
+            ⚠️ Erro ao carregar leads. Verifique sua conexão.
+          </span>
         </div>
       )}
 

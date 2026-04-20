@@ -2,6 +2,7 @@ import { Request, Response } from 'express';
 import { prisma } from '@flowdesk/db';
 import { wahaService } from '../services/waha.service';
 import { ContactSource, LeadStatus, ConversationStatus } from '@prisma/client';
+import { logger } from '../lib/logger';
 
 interface WahaMessagePayload {
   id: string;
@@ -254,6 +255,6 @@ export async function wahaWebhookHandler(req: Request, res: Response): Promise<v
       });
     }
   } catch (error) {
-    console.error('WAHA webhook error:', error);
+    logger.error({ error }, 'WAHA webhook error');
   }
 }

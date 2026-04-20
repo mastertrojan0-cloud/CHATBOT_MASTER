@@ -18,6 +18,7 @@ import { connectDb } from '@flowdesk/db';
 import { weeklyReportJob } from './jobs/weekly-report.job';
 import { stripeWebhookHandler } from './webhooks/stripe.webhook';
 import { wahaWebhookHandler } from './webhooks/waha.webhook';
+import { logger } from './lib/logger';
 
 const app: Express = express();
 const port = process.env.PORT || 3000;
@@ -160,21 +161,20 @@ const startServer = async () => {
   try {
     // Connect to database
     await connectDb();
-    console.log('✅ Database connected');
+    logger.info('Database connected');
 
     // Start jobs
     weeklyReportJob.start();
 
     const server = app.listen(port, () => {
-      console.log(`
-╔════════════════════════════════════════╗
-║      FlowDesk API Server Started       ║
-╠════════════════════════════════════════╣
-║ Port:     ${port.toString().padEnd(30)} ║
-║ Env:      ${(process.env.NODE_ENV || 'development').padEnd(26)} ║
-║ Frontend: ${(process.env.FRONTEND_URL || 'http://localhost:5173').padEnd(21)} ║
-╚════════════════════════════════════════╝
-  `);
+      logger.info(
+        {
+          port,
+          env: process.env.NODE_ENV || 'development',
+          frontend: process.env.FRONTEND_URL || 'http://localhost:5173',
+        },
+        'Server started'
+      );
     });
 
     // Graceful shutdown

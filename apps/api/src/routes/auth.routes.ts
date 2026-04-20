@@ -9,7 +9,6 @@ import { PlanType, BusinessSegment, TenantUserRole } from '@prisma/client';
 
 const router = Router();
 
-// Schemas de validação
 const loginSchema = z.object({
   email: z.string().email('Email inválido'),
   password: z.string().min(1, 'Senha obrigatória'),
@@ -23,10 +22,11 @@ const registerSchema = z.object({
   segment: z.string().optional(),
 });
 
-// Rate limiter específico para auth
 const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutos
-  max: 10, // 10 requisições por IP
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
   message: {
     success: false,
     error: {
@@ -34,8 +34,6 @@ const authLimiter = rateLimit({
       message: 'Muitas tentativas. Aguarde 15 minutos.',
     },
   },
-  standardHeaders: true,
-  legacyHeaders: false,
 });
 
 function generateSlug(text: string): string {
@@ -57,10 +55,6 @@ function generateUniqueSlug(baseSlug: string, existingSlugs: string[]): string {
   return slug;
 }
 
-/**
- * POST /api/auth/login
- * Login com email e senha via Supabase Auth
- */
 router.post(
   '/login',
   authLimiter,
@@ -75,45 +69,26 @@ router.post(
       });
 
       if (error || !data.session) {
-        res.status(401).json({
-          success: false,
-          error: {
-            code: 'INVALID_CREDENTIALS',
-            message: 'Invalid email or password',
-          },
-        });
+        sendError(res, 'Invalid email or password', 'INVALID_CREDENTIALS', 401);
         return;
       }
 
-      res.json({
-        success: true,
-        data: {
-          accessToken: data.session.access_token,
-          refreshToken: data.session.refresh_token,
-          expiresIn: data.session.expires_in,
-          user: {
-            id: data.user.id,
-            email: data.user.email,
-          },
+      sendSuccess(res, {
+        accessToken: data.session.access_token,
+        refreshToken: data.session.refresh_token,
+        expiresIn: data.session.expires_in,
+        user: {
+          id: data.user.id,
+          email: data.user.email,
         },
       });
     } catch (error) {
       console.error('Login error:', error);
-      res.status(500).json({
-        success: false,
-        error: {
-          code: 'LOGIN_ERROR',
-          message: 'Login failed',
-        },
-      });
+      sendError(res, 'Login failed', 'LOGIN_ERROR', 500);
     }
   }
 );
 
-/**
- * POST /api/auth/register
- * Registro de novo usuário via Supabase Auth + criar tenant automaticamente
- */
 router.post(
   '/register',
   authLimiter,
@@ -135,24 +110,12 @@ router.post(
       });
 
       if (error) {
-        res.status(400).json({
-          success: false,
-          error: {
-            code: 'REGISTRATION_ERROR',
-            message: error.message,
-          },
-        });
+        sendError(res, error.message, 'REGISTRATION_ERROR', 400);
         return;
       }
 
       if (!data.user) {
-        res.status(400).json({
-          success: false,
-          error: {
-            code: 'REGISTRATION_ERROR',
-            message: 'Failed to create user',
-          },
-        });
+        sendError(res, 'Failed to create user', 'REGISTRATION_ERROR', 400);
         return;
       }
 
@@ -165,10 +128,10 @@ router.post(
         where: { slug: { startsWith: baseSlug } },
         select: { slug: true },
       });
-      const existingSlugs = existingTenants.map(t => t.slug);
+      const existingSlugs = existingTenants.map((t) => t.slug);
       const slug = generateUniqueSlug(baseSlug, existingSlugs);
 
-      const businessSegment = segment 
+      const businessSegment = segment
         ? (segment.toUpperCase() as BusinessSegment)
         : BusinessSegment.CLINIC;
 
@@ -208,18 +171,15 @@ router.post(
         accessToken = loginData.session?.access_token;
       }
 
-      res.json({
-        success: true,
-        data: {
-          user: { id: supabaseUserId, email },
-          tenant: {
-            id: tenant.id,
-            name: tenant.name,
-            slug: tenant.slug,
-            plan: tenant.plan.toLowerCase(),
-          },
-          token: accessToken,
+      sendSuccess(res, {
+        user: { id: supabaseUserId, email },
+        tenant: {
+          id: tenant.id,
+          name: tenant.name,
+          slug: tenant.slug,
+          plan: tenant.plan.toLowerCase(),
         },
+        token: accessToken,
       });
     } catch (error) {
       console.error('Registration error:', error);
@@ -232,21 +192,11 @@ router.post(
         }
       }
 
-      res.status(500).json({
-        success: false,
-        error: {
-          code: 'REGISTRATION_ERROR',
-          message: 'Registration failed',
-        },
-      });
+      sendError(res, 'Registration failed', 'REGISTRATION_ERROR', 500);
     }
   }
 );
 
-/**
- * POST /api/auth/refresh
- * Refresh do token JWT
- */
 router.post(
   '/refresh',
   publicLimiter,
