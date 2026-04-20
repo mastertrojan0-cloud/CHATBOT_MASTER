@@ -32,11 +32,10 @@ export default function DashboardPage() {
     : Array.isArray(topInterests)
       ? topInterests
       : [];
-  const safeLeadsByDay = Array.isArray((leadsByDay as any)?.data)
-    ? (leadsByDay as any).data
-    : Array.isArray(leadsByDay)
-      ? leadsByDay
-      : [];
+  const rawLeadsByDay = (leadsByDay as any)?.data ?? leadsByDay ?? metricsData?.leadsByDay;
+  const safeLeadsByDay = Array.isArray(rawLeadsByDay)
+    ? rawLeadsByDay
+    : Object.entries(rawLeadsByDay || {}).map(([date, count]) => ({ date, count }));
   const chartLeadsByDay = safeLeadsByDay.map((item: any) => ({
     ...item,
     leads: typeof item.leads === 'number' ? item.leads : (item.count || 0),
