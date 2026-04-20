@@ -1,10 +1,10 @@
 import axios, { AxiosInstance } from 'axios';
+import { useAuthStore } from '@/stores/authStore';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api';
 
 class ApiClient {
   private client: AxiosInstance;
-  private authStoreGetState?: () => { token?: string };
   private refreshToken: string | null = null;
 
   constructor() {
@@ -15,18 +15,15 @@ class ApiClient {
       },
     });
 
-    this.client.interceptors.request.use(async (config) => {
-      if (!this.authStoreGetState) {
-        const authModule = await import('@/stores/authStore');
-        this.authStoreGetState = authModule.useAuthStore.getState as () => { token?: string };
+    this.client.interceptors.request.use((config) => {
+      const token = sessionStorage.getItem('flowdesk_access') || useAuthStore.getState().token || '';
+
+      if (!config.headers) {
+        config.headers = {};
       }
 
-      const tokenFromStore = this.authStoreGetState?.()?.token;
-      const tokenFromSessionStorage = sessionStorage.getItem('flowdesk_access');
-      const token = tokenFromStore || tokenFromSessionStorage || '';
-
       if (token) {
-        config.headers.Authorization = `Bearer ${token}`;
+        (config.headers as any).Authorization = `Bearer ${token}`;
       }
 
       return config;
