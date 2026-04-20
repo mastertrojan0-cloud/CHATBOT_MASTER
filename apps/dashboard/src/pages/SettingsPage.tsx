@@ -20,8 +20,9 @@ import { useAuthStore } from '@/stores/authStore';
 
 export default function SettingsPage() {
   const { tenant } = useAuthStore();
+  const isPro = tenant?.plan === 'pro';
   const { data: tenantData } = useTenant();
-  const { data: sheetsConfig } = useGoogleSheetsConfig();
+  const { data: sheetsConfig } = useGoogleSheetsConfig(isPro);
   const updateBusinessMutation = useUpdateBusinessSettings();
   const updateNotificationsMutation = useUpdateNotificationSettings();
   const connectSheetsMutation = useConnectGoogleSheets();
@@ -96,8 +97,6 @@ export default function SettingsPage() {
       sheetName: sheetsSheetName,
     });
   };
-
-  const isPro = tenant?.plan === 'pro';
 
   return (
     <div className="p-lg space-y-lg max-w-4xl">
@@ -262,46 +261,36 @@ export default function SettingsPage() {
       </Card>
 
       {/* Google Sheets Integration */}
-      <Card elevated className="p-lg">
-        <CardHeader
-          title="Google Sheets"
-          subtitle={isPro ? 'Sincronize seus leads com Google Sheets' : 'Disponível apenas no plano Pro'}
-        />
-        <CardBody className="mt-md space-y-md">
-          {Boolean(sheetsInfo?.connected) && (
-            <Alert
-              type="success"
-              title="Conectado"
-              message={`Seus leads estão sendo sincronizados com a planilha "${typeof sheetsInfo?.sheetName === 'string' ? sheetsInfo.sheetName : ''}"`}
-            />
-          )}
-
-          {!isPro && (
-            <Alert
-              type="warning"
-              title="Recurso Pro"
-              message="Este recurso está disponível apenas para clientes do plano Pro. Upgrade agora para acessar."
-            />
-          )}
-
-          <Input
-            label="ID da Planilha"
-            disabled={!isPro}
-            value={sheetsSpreadsheetId}
-            onChange={(e) => setSheetsSpreadsheetId(e.target.value)}
-            placeholder="ID da sua planilha do Google Sheets"
-            helperText="Você pode encontrar o ID na URL da sua planilha"
+      {isPro ? (
+        <Card elevated className="p-lg">
+          <CardHeader
+            title="Google Sheets"
+            subtitle="Sincronize seus leads com Google Sheets"
           />
+          <CardBody className="mt-md space-y-md">
+            {Boolean(sheetsInfo?.connected) && (
+              <Alert
+                type="success"
+                title="Conectado"
+                message={`Seus leads estão sendo sincronizados com a planilha "${typeof sheetsInfo?.sheetName === 'string' ? sheetsInfo.sheetName : ''}"`}
+              />
+            )}
 
-          <Input
-            label="Nome da Aba"
-            disabled={!isPro}
-            value={sheetsSheetName}
-            onChange={(e) => setSheetsSheetName(e.target.value)}
-            placeholder="Ex: Leads, Contatos"
-          />
-        </CardBody>
-        {isPro && (
+            <Input
+              label="ID da Planilha"
+              value={sheetsSpreadsheetId}
+              onChange={(e) => setSheetsSpreadsheetId(e.target.value)}
+              placeholder="ID da sua planilha do Google Sheets"
+              helperText="Você pode encontrar o ID na URL da sua planilha"
+            />
+
+            <Input
+              label="Nome da Aba"
+              value={sheetsSheetName}
+              onChange={(e) => setSheetsSheetName(e.target.value)}
+              placeholder="Ex: Leads, Contatos"
+            />
+          </CardBody>
           <CardFooter>
             <Button
               variant="primary"
@@ -311,8 +300,17 @@ export default function SettingsPage() {
               Conectar Google Sheets
             </Button>
           </CardFooter>
-        )}
-      </Card>
+        </Card>
+      ) : (
+        <div className="border border-yellow-500/30 rounded-lg p-4 bg-yellow-500/10">
+          <p className="text-yellow-400 text-sm">
+            Integracoes disponiveis no plano Pro
+          </p>
+          <button className="mt-2 text-xs text-brand-400 underline">
+            Fazer upgrade ->
+          </button>
+        </div>
+      )}
 
       {/* Plan Card */}
       <Card elevated className="p-lg bg-gradient-to-br from-brand-900 to-dark-800 border-brand-700">

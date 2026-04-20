@@ -77,9 +77,10 @@ export function useWAHAStatus() {
   });
 }
 
-export function useGoogleSheetsConfig() {
+export function useGoogleSheetsConfig(enabled: boolean = true) {
   return useQuery({
     queryKey: ['integrations', 'google-sheets'],
     queryFn: () => apiClient.getGoogleSheetsConfig(),
+    enabled,
   });
 }
