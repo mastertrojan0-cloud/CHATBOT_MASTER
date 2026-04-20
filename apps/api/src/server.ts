@@ -2,6 +2,8 @@
 import express, { Express, Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import compression from 'compression';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
 import {
   authMiddleware,
   publicLimiter,
@@ -19,6 +21,7 @@ import { weeklyReportJob } from './jobs/weekly-report.job';
 import { stripeWebhookHandler } from './webhooks/stripe.webhook';
 import { wahaWebhookHandler } from './webhooks/waha.webhook';
 import { logger } from './lib/logger';
+import './config/env';
 
 const app: Express = express();
 const port = process.env.PORT || 3000;
@@ -41,6 +44,9 @@ app.use(morganMiddleware);
 app.use(loggerStartTime);
 app.use(loggerEndTime);
 
+// Security headers
+app.use(helmet());
+
 // CORS
 const allowedOrigins = [
   'https://chatbot-master-dashboard.vercel.app',
@@ -62,6 +68,21 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
+
+const globalLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 100,
+  standardHeaders: true,
+  message: {
+    success: false,
+    error: {
+      code: 'RATE_LIMIT',
+      message: 'Muitas requisições.',
+    },
+  },
+});
+
+app.use(globalLimiter);
 
 // Body parsing
 app.use(express.json({ limit: '10mb' }));
