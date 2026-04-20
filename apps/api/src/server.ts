@@ -42,22 +42,24 @@ app.use(loggerEndTime);
 
 // CORS
 const allowedOrigins = [
-  process.env.FRONTEND_URL,
+  'https://chatbot-master-dashboard.vercel.app',
   'http://localhost:5173',
   'http://localhost:3000',
-].filter(Boolean) as string[]
+  process.env.FRONTEND_URL,
+].filter((o): o is string => Boolean(o))
 
 app.use(cors({
   origin: (origin, callback) => {
     if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true)
     } else {
-      callback(new Error(`CORS blocked: ${origin}`))
+      console.warn('[CORS] Blocked origin:', origin)
+      callback(new Error('Not allowed by CORS'))
     }
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
 // Body parsing

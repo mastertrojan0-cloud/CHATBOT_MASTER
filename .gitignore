@@ -29,6 +29,7 @@ npm-debug.log*
 .env.test.local
 .env.production.local
 infra/.env
+infra/.env.local
 
 # TypeScript
 *.tsbuildinfo
