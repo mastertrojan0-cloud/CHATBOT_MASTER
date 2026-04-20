@@ -27,7 +27,7 @@ export default function LeadsPage() {
   const debouncedSearch = useDebounce(searchText, 500);
   const { tenant } = useAuthStore();
 
-  const { data: leadsData, isLoading } = useLeads(page, limit, {
+  const { data: leadsData, isLoading, isError } = useLeads(page, limit, {
     ...filters,
     search: debouncedSearch,
   });
@@ -136,6 +136,14 @@ export default function LeadsPage() {
           {isLoading ? (
             <div className="flex items-center justify-center py-lg">
               <p className="text-dark-400">Carregando leads...</p>
+            </div>
+          ) : isError ? (
+            <div className="flex items-center justify-center py-lg">
+              <p className="text-red-400">Erro ao carregar leads. Tente novamente.</p>
+            </div>
+          ) : safeLeads.length === 0 ? (
+            <div className="flex items-center justify-center py-lg">
+              <p className="text-dark-400">Nenhum lead ainda</p>
             </div>
           ) : (
             <>
