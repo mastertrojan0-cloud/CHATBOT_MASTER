@@ -45,8 +45,17 @@ class ApiClient {
     return data;
   }
 
-  async register(email: string, password: string, fullName?: string) {
-    const { data } = await this.client.post('/auth/register', { email, password, fullName });
+  async register(payload: { email: string; password: string; businessName: string; segment: string }) {
+    const { data } = await this.client.post('/auth/register', payload);
+    const accessToken = data?.data?.accessToken || data?.data?.token;
+    const refreshToken = data?.data?.refreshToken;
+
+    if (data?.success && accessToken) {
+      sessionStorage.setItem('flowdesk_access', accessToken);
+      if (refreshToken) {
+        this.refreshToken = refreshToken;
+      }
+    }
     return data;
   }
 

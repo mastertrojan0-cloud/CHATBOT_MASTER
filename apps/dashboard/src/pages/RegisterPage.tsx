@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { useNavigate } from '@tanstack/react-router';
+import { useNavigate } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
 import { apiClient } from '@/config/api';
 import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
+import { Select } from '@/components/Select';
 import { Card, CardBody, CardHeader, CardTitle } from '@/components/Card';
 import { toast } from 'sonner';
 
@@ -11,6 +12,7 @@ export default function RegisterPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
+  const [segment, setSegment] = useState('COMERCIO_GERAL');
   const [isLoading, setIsLoading] = useState(false);
   const navigate = useNavigate();
 
@@ -27,12 +29,33 @@ export default function RegisterPage() {
       return;
     }
 
+    if (!fullName.trim()) {
+      toast.error('Preencha o nome do negocio');
+      return;
+    }
+
     setIsLoading(true);
     try {
-      const result = await apiClient.register(email, password, fullName);
+      const formData = {
+        email,
+        password,
+        fullName,
+        businessName: fullName,
+        name: fullName,
+        segment,
+      };
+
+      const payload = {
+        email: formData.email,
+        password: formData.password,
+        businessName: (formData as any).nome || formData.businessName || formData.name || formData.fullName,
+        segment: formData.segment || 'COMERCIO_GERAL',
+      };
+
+      const result = await apiClient.register(payload);
       if (result.success) {
-        toast.success('Conta criada! Verifique seu email para confirmar.');
-        navigate({ to: '/login' });
+        toast.success('Conta criada com sucesso!');
+        navigate('/dashboard');
       } else {
         toast.error(result.error?.message || 'Registro falhou');
       }
@@ -65,6 +88,7 @@ export default function RegisterPage() {
               value={fullName}
               onChange={(e) => setFullName(e.target.value)}
               placeholder="Seu nome"
+              required
             />
             <Input
               label="Email"
@@ -81,6 +105,21 @@ export default function RegisterPage() {
               onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••"
               required
+            />
+            <Select
+              label="Segmento"
+              value={segment}
+              onChange={(e) => setSegment(e.target.value)}
+              options={[
+                { value: 'SALAO_BARBEARIA', label: 'Salao/Barbearia' },
+                { value: 'RESTAURANTE', label: 'Restaurante' },
+                { value: 'LOJA_ROUPAS', label: 'Loja de Roupas' },
+                { value: 'AUTONOMO', label: 'Autonomo' },
+                { value: 'COMERCIO_GERAL', label: 'Comercio Geral' },
+                { value: 'CLINIC', label: 'Clinica' },
+                { value: 'DENTAL', label: 'Dental' },
+                { value: 'FITNESS', label: 'Fitness' },
+              ]}
             />
             <Button
               type="submit"
