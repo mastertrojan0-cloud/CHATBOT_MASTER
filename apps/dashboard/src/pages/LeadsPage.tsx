@@ -15,7 +15,7 @@ import {
   TableHead,
   TableCell,
 } from '@/components';
-import { useLeads, useLeadsByDay } from '@/hooks/queries';
+import { useLeads } from '@/hooks/queries';
 import { useLeadsStore } from '@/stores/leadsStore';
 import { useExportLeadsCSV, useUpdateLead } from '@/hooks/mutations';
 import { useAuthStore } from '@/stores/authStore';
@@ -60,7 +60,10 @@ export default function LeadsPage() {
     setPage(1);
   };
 
-  const totalPages = leadsData?.pagination?.pages || 1;
+  const leadsPayload = (leadsData as any)?.data || leadsData || {};
+  const safeLeads = Array.isArray(leadsPayload?.data) ? leadsPayload.data : [];
+  const totalPages = typeof leadsPayload?.pagination?.pages === 'number' ? leadsPayload.pagination.pages : 1;
+  const totalLeads = typeof leadsPayload?.pagination?.total === 'number' ? leadsPayload.pagination.total : 0;
 
   return (
     <div className="p-lg space-y-lg">
@@ -69,7 +72,7 @@ export default function LeadsPage() {
         <div>
           <h1 className="text-display-md font-display font-bold text-dark-100">Leads</h1>
           <p className="text-body-md text-dark-400 mt-xs">
-            {leadsData?.pagination?.total || 0} leads no total
+            {totalLeads} leads no total
           </p>
         </div>
 
@@ -146,19 +149,27 @@ export default function LeadsPage() {
                   <TableHead textAlign="center">Ações</TableHead>
                 </TableHeader>
                 <TableBody>
-                  {leadsData?.data?.map((lead: any) => (
-                    <TableRow key={lead.id}>
+                  {safeLeads.map((lead: any) => {
+                    const leadName = typeof lead?.name === 'string' ? lead.name : '';
+                    const leadEmail = typeof lead?.email === 'string' ? lead.email : '';
+                    const leadPhone = typeof lead?.phone === 'string' ? lead.phone : '';
+                    const leadStatus = typeof lead?.status === 'string' ? lead.status : 'new';
+                    const leadScore = typeof lead?.score === 'number' ? lead.score : 0;
+                    const leadCreatedAt = lead?.createdAt ? new Date(lead.createdAt) : null;
+
+                    return (
+                    <TableRow key={lead?.id || `${leadPhone}-${leadName}`}>
                       <TableCell>
                         <div>
                           <p className="text-body-md font-medium text-dark-100">
-                            {lead.name}
+                            {leadName}
                           </p>
-                          {lead.email && (
-                            <p className="text-body-sm text-dark-400">{lead.email}</p>
+                          {leadEmail && (
+                            <p className="text-body-sm text-dark-400">{leadEmail}</p>
                           )}
                         </div>
                       </TableCell>
-                      <TableCell>{lead.phone}</TableCell>
+                      <TableCell>{leadPhone}</TableCell>
                       <TableCell>
                         <Select
                           options={[
@@ -168,7 +179,7 @@ export default function LeadsPage() {
                             { value: 'qualified', label: 'Qualificado' },
                             { value: 'lost', label: 'Perdido' },
                           ]}
-                          value={lead.status}
+                          value={leadStatus}
                           onChange={(e) =>
                             handleStatusChange(lead.id, e.target.value)
                           }
@@ -179,20 +190,22 @@ export default function LeadsPage() {
                           <div className="flex-1 bg-dark-700 rounded-full h-1 w-12">
                             <div
                               className="h-full bg-brand-500 rounded-full"
-                              style={{ width: `${lead.score}%` }}
+                              style={{ width: `${leadScore}%` }}
                             />
                           </div>
                           <span className="text-body-sm text-dark-300 w-8">
-                            {lead.score}%
+                            {leadScore}%
                           </span>
                         </div>
                       </TableCell>
                       <TableCell className="text-dark-400">
-                        {new Date(lead.createdAt).toLocaleDateString('pt-BR')}
+                        {leadCreatedAt && !Number.isNaN(leadCreatedAt.getTime())
+                          ? leadCreatedAt.toLocaleDateString('pt-BR')
+                          : ''}
                       </TableCell>
                       <TableCell textAlign="center">
                         <a
-                          href={`https://wa.me/${lead.phone.replace(/\D/g, '')}`}
+                          href={`https://wa.me/${leadPhone.replace(/\D/g, '')}`}
                           target="_blank"
                           rel="noreferrer"
                           className="flex items-center gap-xs justify-center text-brand-400 hover:text-brand-300 transition-colors"
@@ -202,7 +215,7 @@ export default function LeadsPage() {
                         </a>
                       </TableCell>
                     </TableRow>
-                  ))}
+                  )})}
                 </TableBody>
               </Table>
 

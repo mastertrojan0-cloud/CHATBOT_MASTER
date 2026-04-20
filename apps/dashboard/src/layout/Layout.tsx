@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Link } from '@tanstack/react-router';
+import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard,
   Users,
@@ -24,14 +24,14 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
   const logoutMutation = useLogout();
 
   const menuItems = [
-    { icon: LayoutDashboard, label: 'Dashboard', path: '/' },
+    { icon: LayoutDashboard, label: 'Dashboard', path: '/dashboard' },
     { icon: Users, label: 'Leads', path: '/leads' },
     { icon: Smartphone, label: 'Conectar', path: '/connect' },
     { icon: Settings, label: 'Configurações', path: '/settings' },
   ];
 
   const usagePercentage = tenant
-    ? (tenant.usage.leadsPerMonth / tenant.usage.leadsPerMonthLimit) * 100
+    ? (tenant.usage.leadsPerMonth / (tenant.usage.leadsPerMonthLimit || 1)) * 100
     : 0;
   const isNearLimit = usagePercentage >= 80;
 
@@ -46,12 +46,12 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
         {/* Logo */}
         <div className="h-20 flex items-center justify-between px-md border-b border-dark-700">
           {isSidebarOpen && (
-            <Link to="/" className="flex items-center gap-sm">
+            <NavLink to="/dashboard" className="flex items-center gap-sm">
               <div className="w-10 h-10 bg-gradient-to-br from-brand-400 to-brand-600 rounded-lg flex items-center justify-center">
                 <span className="font-display font-bold text-dark-900 text-lg">F</span>
               </div>
               <span className="font-display font-bold text-dark-100 text-title-lg">FlowDesk</span>
-            </Link>
+            </NavLink>
           )}
           <button
             onClick={() => setIsSidebarOpen(!isSidebarOpen)}
@@ -64,15 +64,20 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
         {/* Navigation */}
         <nav className="flex-1 overflow-y-auto py-md space-y-xs">
           {menuItems.map((item) => (
-            <Link
+            <NavLink
               key={item.path}
               to={item.path}
-              className="flex items-center gap-md px-md py-sm rounded-md text-dark-300 hover:text-brand-400 hover:bg-brand-500/10 transition-colors"
-              activeProps={{ className: 'bg-brand-500/20 text-brand-400' }}
+              className={({ isActive }) =>
+                `flex items-center gap-md px-md py-sm rounded-md transition-colors ${
+                  isActive
+                    ? 'bg-brand-500/20 text-brand-400'
+                    : 'text-dark-300 hover:text-brand-400 hover:bg-brand-500/10'
+                }`
+              }
             >
               <item.icon className="w-5 h-5" />
               {isSidebarOpen && <span className="text-body-sm font-medium">{item.label}</span>}
-            </Link>
+            </NavLink>
           ))}
         </nav>
 

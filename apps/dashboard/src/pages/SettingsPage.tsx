@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Settings, Bell, Zap, Lock } from 'lucide-react';
 import {
   Card,
@@ -26,25 +26,53 @@ export default function SettingsPage() {
   const updateNotificationsMutation = useUpdateNotificationSettings();
   const connectSheetsMutation = useConnectGoogleSheets();
 
+  const tenantInfo = (tenantData as any)?.data || tenantData || {};
+  const notificationsInfo = tenantInfo?.notifications || {};
+  const sheetsInfo = (sheetsConfig as any)?.data || sheetsConfig || {};
+
   const [businessSettings, setBusinessSettings] = useState({
-    businessName: tenantData?.businessName || '',
-    industry: tenantData?.industry || '',
-    phone: tenantData?.phone || '',
-    email: tenantData?.email || '',
-    website: tenantData?.website || '',
+    businessName: typeof tenantInfo?.businessName === 'string' ? tenantInfo.businessName : '',
+    industry: typeof tenantInfo?.industry === 'string' ? tenantInfo.industry : '',
+    phone: typeof tenantInfo?.phone === 'string' ? tenantInfo.phone : '',
+    email: typeof tenantInfo?.email === 'string' ? tenantInfo.email : '',
+    website: typeof tenantInfo?.website === 'string' ? tenantInfo.website : '',
   });
 
   const [notificationSettings, setNotificationSettings] = useState({
-    waNotifications: tenantData?.notifications?.waNotifications || false,
-    emailNotifications: tenantData?.notifications?.emailNotifications || false,
-    newLeadAlert: tenantData?.notifications?.newLeadAlert || false,
-    messageAlert: tenantData?.notifications?.messageAlert || false,
+    waNotifications: typeof notificationsInfo?.waNotifications === 'boolean' ? notificationsInfo.waNotifications : false,
+    emailNotifications: typeof notificationsInfo?.emailNotifications === 'boolean' ? notificationsInfo.emailNotifications : false,
+    newLeadAlert: typeof notificationsInfo?.newLeadAlert === 'boolean' ? notificationsInfo.newLeadAlert : false,
+    messageAlert: typeof notificationsInfo?.messageAlert === 'boolean' ? notificationsInfo.messageAlert : false,
   });
 
   const [sheetsSpreadsheetId, setSheetsSpreadsheetId] = useState(
-    sheetsConfig?.spreadsheetId || ''
+    typeof sheetsInfo?.spreadsheetId === 'string' ? sheetsInfo.spreadsheetId : ''
   );
-  const [sheetsSheetName, setSheetsSheetName] = useState(sheetsConfig?.sheetName || '');
+  const [sheetsSheetName, setSheetsSheetName] = useState(
+    typeof sheetsInfo?.sheetName === 'string' ? sheetsInfo.sheetName : ''
+  );
+
+  useEffect(() => {
+    setBusinessSettings({
+      businessName: typeof tenantInfo?.businessName === 'string' ? tenantInfo.businessName : '',
+      industry: typeof tenantInfo?.industry === 'string' ? tenantInfo.industry : '',
+      phone: typeof tenantInfo?.phone === 'string' ? tenantInfo.phone : '',
+      email: typeof tenantInfo?.email === 'string' ? tenantInfo.email : '',
+      website: typeof tenantInfo?.website === 'string' ? tenantInfo.website : '',
+    });
+
+    setNotificationSettings({
+      waNotifications: typeof notificationsInfo?.waNotifications === 'boolean' ? notificationsInfo.waNotifications : false,
+      emailNotifications: typeof notificationsInfo?.emailNotifications === 'boolean' ? notificationsInfo.emailNotifications : false,
+      newLeadAlert: typeof notificationsInfo?.newLeadAlert === 'boolean' ? notificationsInfo.newLeadAlert : false,
+      messageAlert: typeof notificationsInfo?.messageAlert === 'boolean' ? notificationsInfo.messageAlert : false,
+    });
+  }, [tenantInfo, notificationsInfo]);
+
+  useEffect(() => {
+    setSheetsSpreadsheetId(typeof sheetsInfo?.spreadsheetId === 'string' ? sheetsInfo.spreadsheetId : '');
+    setSheetsSheetName(typeof sheetsInfo?.sheetName === 'string' ? sheetsInfo.sheetName : '');
+  }, [sheetsInfo]);
 
   const handleBusinessChange = (field: string, value: string) => {
     setBusinessSettings((prev) => ({ ...prev, [field]: value }));
@@ -240,11 +268,11 @@ export default function SettingsPage() {
           subtitle={isPro ? 'Sincronize seus leads com Google Sheets' : 'Disponível apenas no plano Pro'}
         />
         <CardBody className="mt-md space-y-md">
-          {sheetsConfig?.connected && (
+          {Boolean(sheetsInfo?.connected) && (
             <Alert
               type="success"
               title="Conectado"
-              message={`Seus leads estão sendo sincronizados com a planilha "${sheetsConfig.sheetName}"`}
+              message={`Seus leads estão sendo sincronizados com a planilha "${typeof sheetsInfo?.sheetName === 'string' ? sheetsInfo.sheetName : ''}"`}
             />
           )}
 

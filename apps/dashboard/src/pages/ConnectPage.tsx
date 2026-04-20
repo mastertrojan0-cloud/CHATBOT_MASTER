@@ -2,19 +2,27 @@ import React, { useEffect, useState } from 'react';
 import QRCode from 'qrcode.react';
 import { Smartphone, CheckCircle, AlertCircle, Loader } from 'lucide-react';
 import { Card, CardHeader, CardBody, Alert, Badge } from '@/components';
-import { useWAHASession, useWAHAQR, useWAHAStatus } from '@/hooks/queries';
+import { useWAHASession, useWAHAStatus } from '@/hooks/queries';
 import { apiClient } from '@/config/api';
-import { Tenant } from '@/types';
 
 export default function ConnectPage() {
   const { data: wahaSession, isLoading } = useWAHASession();
+  const { data: wahaStatus } = useWAHAStatus();
   const [qrValue, setQrValue] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string>('');
 
-  useEffect(() => {
-    if (!wahaSession) return;
+  const sessionData = (wahaSession as any)?.data || wahaSession || {};
+  const statusData = (wahaStatus as any)?.data || wahaStatus || {};
+  const sessionStatus = typeof sessionData?.status === 'string' ? sessionData.status : '';
+  const statusState = typeof statusData?.state === 'string' ? statusData.state : '';
 
-    const status = wahaSession.status;
+  useEffect(() => {
+    if (!sessionStatus) {
+      setStatusMessage('Carregando status da conexão...');
+      return;
+    }
+
+    const status = sessionStatus;
 
     if (status === 'STOPPED' || status === 'DISCONNECTED') {
       setStatusMessage('WhatsApp desconectado');
@@ -27,15 +35,17 @@ export default function ConnectPage() {
       apiClient.getWAHAQR().then((res) => {
         if (res.success && res.data?.value) {
           setQrValue(res.data.value);
+        } else {
+          setQrValue(null);
         }
       }).catch(console.error);
     } else {
       setStatusMessage('Status desconhecido');
     }
-  }, [wahaSession]);
+  }, [sessionStatus]);
 
   const getStatusBadge = () => {
-    const status = wahaSession?.status;
+    const status = sessionStatus;
     switch (status) {
       case 'WORKING':
       case 'CONNECTED':
@@ -95,7 +105,7 @@ export default function ConnectPage() {
       </Card>
 
       {/* QR Code Card */}
-      {wahaSession?.status === 'SCAN_QR_CODE' && qrValue && (
+      {sessionStatus === 'SCAN_QR_CODE' && qrValue && (
         <Card elevated className="p-lg">
           <CardHeader title="Escaneie o QR Code" subtitle="Use seu telefone com WhatsApp aberto" />
           <CardBody className="mt-md flex justify-center py-lg">
@@ -179,7 +189,7 @@ export default function ConnectPage() {
       </Card>
 
       {/* Info Card */}
-      {wahaStatus?.state === 'CONNECTED' && (
+      {statusState === 'CONNECTED' && (
         <Alert
           type="success"
           title="Conectado com sucesso!"
@@ -187,7 +197,7 @@ export default function ConnectPage() {
         />
       )}
 
-      {wahaStatus?.state === 'DISCONNECTED' && (
+      {statusState === 'DISCONNECTED' && (
         <Alert
           type="error"
           title="Desconectado"
