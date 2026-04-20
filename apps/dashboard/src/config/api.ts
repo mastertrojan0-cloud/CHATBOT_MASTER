@@ -4,6 +4,7 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api'
 
 class ApiClient {
   private client: AxiosInstance;
+  private authStoreGetState?: () => { token?: string };
 
   constructor() {
     this.client = axios.create({
@@ -13,11 +14,19 @@ class ApiClient {
       },
     });
 
-    this.client.interceptors.request.use((config) => {
-      const token = localStorage.getItem('authToken');
+    this.client.interceptors.request.use(async (config) => {
+      if (!this.authStoreGetState) {
+        const authModule = await import('@/stores/authStore');
+        this.authStoreGetState = authModule.useAuthStore.getState as () => { token?: string };
+      }
+
+      const tokenFromStore = this.authStoreGetState?.()?.token;
+      const token = tokenFromStore || localStorage.getItem('authToken') || '';
+
       if (token) {
         config.headers.Authorization = `Bearer ${token}`;
       }
+
       return config;
     });
   }
