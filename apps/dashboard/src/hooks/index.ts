@@ -55,7 +55,7 @@ export function useAuthInit() {
 
   useEffect(() => {
     const initAuth = async () => {
-      const token = localStorage.getItem('authToken');
+      const token = sessionStorage.getItem('flowdesk_access');
 
       if (!token) {
         setIsLoading(false);
@@ -89,7 +89,7 @@ export function useAuthInit() {
         }
       } catch (error) {
         console.error('Error initializing auth:', error);
-        localStorage.removeItem('authToken');
+        sessionStorage.removeItem('flowdesk_access');
       } finally {
         setIsLoading(false);
       }

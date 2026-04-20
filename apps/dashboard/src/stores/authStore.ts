@@ -5,9 +5,11 @@ import { apiClient } from '@/config/api';
 interface AuthStore {
   user: User | null;
   tenant: Tenant | null;
+  token: string | null;
   isLoading: boolean;
   setUser: (user: User | null) => void;
   setTenant: (tenant: Tenant | null) => void;
+  setToken: (token: string | null) => void;
   setIsLoading: (loading: boolean) => void;
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
@@ -16,9 +18,18 @@ interface AuthStore {
 export const useAuthStore = create<AuthStore>((set) => ({
   user: null,
   tenant: null,
+  token: sessionStorage.getItem('flowdesk_access'),
   isLoading: true,
   setUser: (user) => set({ user }),
   setTenant: (tenant) => set({ tenant }),
+  setToken: (token) => {
+    if (token) {
+      sessionStorage.setItem('flowdesk_access', token);
+    } else {
+      sessionStorage.removeItem('flowdesk_access');
+    }
+    set({ token });
+  },
   setIsLoading: (isLoading) => set({ isLoading }),
   login: async (email: string, password: string) => {
     try {
@@ -27,6 +38,11 @@ export const useAuthStore = create<AuthStore>((set) => ({
       console.log('[Auth] Resposta da API login:', response);
       
       if (response.success) {
+        // Set token from response
+        if (response.data?.accessToken) {
+          set({ token: response.data.accessToken });
+        }
+        
         console.log('[Auth] Login bem-sucedido, obtendo tenant...');
         const tenantResponse = await apiClient.getTenant();
         console.log('[Auth] Resposta da API tenant:', tenantResponse);
@@ -73,6 +89,6 @@ export const useAuthStore = create<AuthStore>((set) => ({
   },
   logout: async () => {
     await apiClient.logout();
-    set({ user: null, tenant: null });
+    set({ user: null, tenant: null, token: null });
   },
 }));

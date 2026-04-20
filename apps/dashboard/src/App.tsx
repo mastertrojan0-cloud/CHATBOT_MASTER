@@ -12,7 +12,7 @@ import SettingsPage from '@/pages/SettingsPage'
 import '@/index.css'
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
-  const token = localStorage.getItem('authToken')
+  const token = sessionStorage.getItem('flowdesk_access')
   if (!token) return <Navigate to="/login" replace />
   return <>{children}</>
 }

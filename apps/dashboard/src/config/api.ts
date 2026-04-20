@@ -5,6 +5,7 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api'
 class ApiClient {
   private client: AxiosInstance;
   private authStoreGetState?: () => { token?: string };
+  private refreshToken: string | null = null;
 
   constructor() {
     this.client = axios.create({
@@ -21,7 +22,8 @@ class ApiClient {
       }
 
       const tokenFromStore = this.authStoreGetState?.()?.token;
-      const token = tokenFromStore || localStorage.getItem('authToken') || '';
+      const tokenFromSessionStorage = sessionStorage.getItem('flowdesk_access');
+      const token = tokenFromStore || tokenFromSessionStorage || '';
 
       if (token) {
         config.headers.Authorization = `Bearer ${token}`;
@@ -35,8 +37,10 @@ class ApiClient {
   async login(email: string, password: string) {
     const { data } = await this.client.post('/auth/login', { email, password });
     if (data.success && data.data.accessToken) {
-      localStorage.setItem('authToken', data.data.accessToken);
-      localStorage.setItem('refreshToken', data.data.refreshToken);
+      // Store accessToken in sessionStorage only (vulnerable to XSS but safer than localStorage)
+      sessionStorage.setItem('flowdesk_access', data.data.accessToken);
+      // Keep refreshToken in memory only (never store in any browser storage)
+      this.refreshToken = data.data.refreshToken;
     }
     return data;
   }
@@ -50,18 +54,20 @@ class ApiClient {
     try {
       await this.client.post('/auth/logout');
     } finally {
-      localStorage.removeItem('authToken');
-      localStorage.removeItem('refreshToken');
+      sessionStorage.removeItem('flowdesk_access');
+      this.refreshToken = null;
     }
   }
 
-  async refreshToken() {
-    const refreshToken = localStorage.getItem('refreshToken');
-    if (!refreshToken) throw new Error('No refresh token');
-    const { data } = await this.client.post('/auth/refresh', { refreshToken });
+  async refreshAccessToken() {
+    if (!this.refreshToken) throw new Error('No refresh token available');
+    const { data } = await this.client.post('/auth/refresh', { refreshToken: this.refreshToken });
     if (data.success && data.data.accessToken) {
-      localStorage.setItem('authToken', data.data.accessToken);
-      localStorage.setItem('refreshToken', data.data.refreshToken);
+      sessionStorage.setItem('flowdesk_access', data.data.accessToken);
+      // Update in-memory refreshToken if provided
+      if (data.data.refreshToken) {
+        this.refreshToken = data.data.refreshToken;
+      }
     }
     return data;
   }

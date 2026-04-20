@@ -37,9 +37,19 @@ app.use(loggerStartTime);
 app.use(loggerEndTime);
 
 // CORS
+const allowedOrigins = [
+  process.env.FRONTEND_URL,
+  'http://localhost:5173',
+  'http://localhost:3000',
+].filter(Boolean) as string[]
+
 app.use(cors({
-  origin: (_origin: string | undefined, callback: (err: Error | null, allow?: boolean) => void) => {
-    callback(null, true)
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true)
+    } else {
+      callback(new Error(`CORS blocked: ${origin}`))
+    }
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
