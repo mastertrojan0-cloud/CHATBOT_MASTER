@@ -12,13 +12,13 @@ const router = Router();
 // Schemas de validação
 const loginSchema = z.object({
   email: z.string().email('Email inválido'),
-  password: z.string().min(1, 'Senha é obrigatória'),
+  password: z.string().min(1, 'Senha obrigatória'),
 });
 
 const registerSchema = z.object({
   email: z.string().email('Email inválido'),
   password: z.string().min(6, 'Senha deve ter ao menos 6 caracteres'),
-  businessName: z.string().min(2, 'Nome do negócio deve ter ao menos 2 caracteres'),
+  businessName: z.string().min(2, 'Nome deve ter ao menos 2 caracteres'),
   fullName: z.string().optional(),
   segment: z.string().optional(),
 });
@@ -31,10 +31,10 @@ const authLimiter = rateLimit({
     success: false,
     error: {
       code: 'TOO_MANY_REQUESTS',
-      message: 'Muitas tentativas. Tente novamente em 15 minutos.',
+      message: 'Muitas tentativas. Aguarde 15 minutos.',
     },
   },
-  standardHeaders: false,
+  standardHeaders: true,
   legacyHeaders: false,
 });
 
