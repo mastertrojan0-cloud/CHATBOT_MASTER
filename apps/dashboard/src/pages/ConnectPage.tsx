@@ -6,8 +6,9 @@ import { useWAHASession, useWAHAStatus } from '@/hooks/queries';
 import { apiClient } from '@/config/api';
 
 export default function ConnectPage() {
-  const { data: wahaSession, isLoading } = useWAHASession();
-  const { data: wahaStatus } = useWAHAStatus();
+  const [isWAHAOffline, setIsWAHAOffline] = useState(false);
+  const { data: wahaSession, isError: sessionError } = useWAHASession(!isWAHAOffline);
+  const { data: wahaStatus, isError: statusError } = useWAHAStatus(!isWAHAOffline);
   const [qrValue, setQrValue] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string>('');
 
@@ -17,6 +18,18 @@ export default function ConnectPage() {
   const statusState = typeof statusData?.state === 'string' ? statusData.state : '';
 
   useEffect(() => {
+    if (sessionError || statusError) {
+      setIsWAHAOffline(true);
+      setQrValue(null);
+      setStatusMessage('WhatsApp ainda nao configurado. Entre em contato com o suporte para ativar.');
+    }
+  }, [sessionError, statusError]);
+
+  useEffect(() => {
+    if (isWAHAOffline) {
+      return;
+    }
+
     if (!sessionStatus) {
       setStatusMessage('Carregando status da conexão...');
       return;
@@ -38,13 +51,24 @@ export default function ConnectPage() {
         } else {
           setQrValue(null);
         }
-      }).catch(console.error);
+      }).catch(() => {
+        setQrValue(null);
+      });
     } else {
       setStatusMessage('Status desconhecido');
     }
-  }, [sessionStatus]);
+  }, [sessionStatus, isWAHAOffline]);
 
   const getStatusBadge = () => {
+    if (isWAHAOffline) {
+      return (
+        <Badge variant="warning" className="flex items-center gap-xs">
+          <AlertCircle className="w-3 h-3" />
+          Offline
+        </Badge>
+      );
+    }
+
     const status = sessionStatus;
     switch (status) {
       case 'WORKING':
@@ -101,11 +125,19 @@ export default function ConnectPage() {
             <span className="text-body-md text-dark-300">{statusMessage}</span>
             {getStatusBadge()}
           </div>
+
+          {isWAHAOffline && (
+            <Alert
+              type="warning"
+              title="WhatsApp indisponível"
+              message="WhatsApp ainda nao configurado. Entre em contato com o suporte para ativar."
+            />
+          )}
         </CardBody>
       </Card>
 
       {/* QR Code Card */}
-      {sessionStatus === 'SCAN_QR_CODE' && qrValue && (
+      {!isWAHAOffline && sessionStatus === 'SCAN_QR_CODE' && qrValue && (
         <Card elevated className="p-lg">
           <CardHeader title="Escaneie o QR Code" subtitle="Use seu telefone com WhatsApp aberto" />
           <CardBody className="mt-md flex justify-center py-lg">
@@ -189,7 +221,7 @@ export default function ConnectPage() {
       </Card>
 
       {/* Info Card */}
-      {statusState === 'CONNECTED' && (
+      {!isWAHAOffline && statusState === 'CONNECTED' && (
         <Alert
           type="success"
           title="Conectado com sucesso!"
@@ -197,7 +229,7 @@ export default function ConnectPage() {
         />
       )}
 
-      {statusState === 'DISCONNECTED' && (
+      {!isWAHAOffline && statusState === 'DISCONNECTED' && (
         <Alert
           type="error"
           title="Desconectado"

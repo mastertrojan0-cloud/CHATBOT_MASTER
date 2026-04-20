@@ -46,14 +46,15 @@ export function useTenant() {
   });
 }
 
-export function useWAHASession() {
+export function useWAHASession(enabled: boolean = true) {
   return useQuery({
     queryKey: ['waha', 'session'],
     queryFn: async () => {
       const { data } = await apiClient.client.get('/sessions/current');
       return data.data;
     },
-    refetchInterval: 1000 * 3, // Refetch every 3 seconds
+    enabled,
+    refetchInterval: enabled ? 1000 * 3 : false, // Refetch every 3 seconds
   });
 }
 
@@ -69,11 +70,12 @@ export function useWAHAQR() {
   });
 }
 
-export function useWAHAStatus() {
+export function useWAHAStatus(enabled: boolean = true) {
   return useQuery({
     queryKey: ['waha', 'status'],
     queryFn: () => apiClient.getWAHAStatus(),
-    refetchInterval: 1000 * 3,
+    enabled,
+    refetchInterval: enabled ? 1000 * 3 : false,
   });
 }
 
