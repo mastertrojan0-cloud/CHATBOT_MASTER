@@ -21,9 +21,9 @@ import { useDashboardMetrics, useLeadsByDay, useTopInterests } from '@/hooks/que
 import { useAuthStore } from '@/stores/authStore';
 
 export default function DashboardPage() {
-  const { data: metrics, isLoading: metricsLoading } = useDashboardMetrics();
-  const { data: leadsByDay, isLoading: leadsLoading } = useLeadsByDay();
-  const { data: topInterests, isLoading: interestsLoading } = useTopInterests();
+  const { data: metrics, isLoading: metricsLoading, isError: metricsError } = useDashboardMetrics();
+  const { data: leadsByDay, isLoading: leadsLoading, isError: leadsError } = useLeadsByDay();
+  const { data: topInterests, isLoading: interestsLoading, isError: interestsError } = useTopInterests();
   const { tenant } = useAuthStore();
 
   const metricsData = (metrics as any)?.data || metrics || {};
@@ -48,6 +48,18 @@ export default function DashboardPage() {
 
   return (
     <div className="p-lg space-y-lg">
+      {/* Error Banner */}
+      {(metricsError || leadsError || interestsError) && (
+        <div className="bg-red-900/20 border border-red-500 rounded p-4 mb-4">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+            <p className="text-red-400 text-sm">
+              Erro ao carregar métricas. Verifique sua conexão e tente novamente.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Alert Free Plan */}
       {tenant?.plan === 'free' && usagePercentage >= 80 && (
         <Alert

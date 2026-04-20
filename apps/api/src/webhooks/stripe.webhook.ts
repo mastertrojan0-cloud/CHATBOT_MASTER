@@ -5,6 +5,7 @@ import { prisma } from '@flowdesk/db';
 import { PlanType } from '@prisma/client';
 import { emailService } from '../services/email.service';
 import { invalidateTenantCache } from '../middleware';
+import { logger } from '../lib/logger';
 
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || '';
 
@@ -21,7 +22,7 @@ export async function stripeWebhookHandler(req: Request, res: Response): Promise
   try {
     event = stripe.webhooks.constructEvent(req.body, sig, STRIPE_WEBHOOK_SECRET);
   } catch (err: any) {
-    console.error('Webhook signature verification failed:', err.message);
+    logger.error({ err }, 'Webhook signature verification failed');
     res.status(400).json({ error: 'Invalid signature' });
     return;
   }
@@ -37,7 +38,7 @@ export async function stripeWebhookHandler(req: Request, res: Response): Promise
         const subscriptionId = session.subscription as string;
 
         if (!tenantId) {
-          console.error('No tenantId in checkout session metadata');
+          logger.error({ metadata: session.metadata }, 'No tenantId in checkout session metadata');
           return;
         }
 
@@ -75,7 +76,7 @@ export async function stripeWebhookHandler(req: Request, res: Response): Promise
         });
 
         if (!tenant) {
-          console.error('No tenant found for customer', customerId);
+          logger.error({ customerId }, 'No tenant found for customer');
           return;
         }
 
