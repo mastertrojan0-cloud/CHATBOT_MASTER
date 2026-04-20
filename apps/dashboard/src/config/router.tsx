@@ -1,4 +1,4 @@
-import { createRouter, RootRoute, Route } from '@tanstack/react-router';
+import { createRouter, RootRoute, Route, Outlet } from '@tanstack/react-router';
 import { Layout } from '@/layout/Layout';
 import DashboardPage from '@/pages/DashboardPage';
 import LeadsPage from '@/pages/LeadsPage';
@@ -7,36 +7,40 @@ import SettingsPage from '@/pages/SettingsPage';
 import LoginPage from '@/pages/LoginPage';
 import RegisterPage from '@/pages/RegisterPage';
 
-const rootRoute = new RootRoute({
-  component: ({ children }) => {
-    return <>{children}</>;
-  },
+const rootRoute = new RootRoute();
+
+// Layout route for authenticated pages
+const layoutRoute = new Route({
+  getParentRoute: () => rootRoute,
+  id: 'layout',
+  component: () => <Layout><Outlet /></Layout>,
 });
 
 const dashboardRoute = new Route({
-  getParentRoute: () => rootRoute,
+  getParentRoute: () => layoutRoute,
   path: '/',
   component: DashboardPage,
 });
 
 const leadsRoute = new Route({
-  getParentRoute: () => rootRoute,
+  getParentRoute: () => layoutRoute,
   path: '/leads',
   component: LeadsPage,
 });
 
 const connectRoute = new Route({
-  getParentRoute: () => rootRoute,
+  getParentRoute: () => layoutRoute,
   path: '/connect',
   component: ConnectPage,
 });
 
 const settingsRoute = new Route({
-  getParentRoute: () => rootRoute,
+  getParentRoute: () => layoutRoute,
   path: '/settings',
   component: SettingsPage,
 });
 
+// Public routes (no layout)
 const loginRoute = new Route({
   getParentRoute: () => rootRoute,
   path: '/login',
@@ -50,10 +54,12 @@ const registerRoute = new Route({
 });
 
 const routeTree = rootRoute.addChildren([
-  dashboardRoute,
-  leadsRoute,
-  connectRoute,
-  settingsRoute,
+  layoutRoute.addChildren([
+    dashboardRoute,
+    leadsRoute,
+    connectRoute,
+    settingsRoute,
+  ]),
   loginRoute,
   registerRoute,
 ]);

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { NavLink } from 'react-router-dom';
+import { Link, useLocation } from '@tanstack/react-router';
 import {
   LayoutDashboard,
   Users,
@@ -22,11 +22,12 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const { tenant } = useAuthStore();
   const logoutMutation = useLogout();
+  const location = useLocation();
 
   const menuItems = [
-    { icon: LayoutDashboard, label: 'Dashboard', path: '/dashboard' },
+    { icon: LayoutDashboard, label: 'Dashboard', path: '/' },
     { icon: Users, label: 'Leads', path: '/leads' },
-    { icon: Smartphone, label: 'Conectar', path: '/connect' },
+    { icon: Smartphone, label: 'WhatsApp', path: '/connect' },
     { icon: Settings, label: 'Configurações', path: '/settings' },
   ];
 
@@ -46,12 +47,12 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
         {/* Logo */}
         <div className="h-20 flex items-center justify-between px-md border-b border-dark-700">
           {isSidebarOpen && (
-            <NavLink to="/dashboard" className="flex items-center gap-sm">
+            <Link to="/" className="flex items-center gap-sm">
               <div className="w-10 h-10 bg-gradient-to-br from-brand-400 to-brand-600 rounded-lg flex items-center justify-center">
                 <span className="font-display font-bold text-dark-900 text-lg">F</span>
               </div>
               <span className="font-display font-bold text-dark-100 text-title-lg">FlowDesk</span>
-            </NavLink>
+            </Link>
           )}
           <button
             onClick={() => setIsSidebarOpen(!isSidebarOpen)}
@@ -63,22 +64,23 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
 
         {/* Navigation */}
         <nav className="flex-1 overflow-y-auto py-md space-y-xs">
-          {menuItems.map((item) => (
-            <NavLink
-              key={item.path}
-              to={item.path}
-              className={({ isActive }) =>
-                `flex items-center gap-md px-md py-sm rounded-md transition-colors ${
+          {menuItems.map((item) => {
+            const isActive = location.pathname === item.path;
+            return (
+              <Link
+                key={item.path}
+                to={item.path}
+                className={`flex items-center gap-md px-md py-sm rounded-md transition-colors ${
                   isActive
                     ? 'bg-brand-500/20 text-brand-400'
                     : 'text-dark-300 hover:text-brand-400 hover:bg-brand-500/10'
-                }`
-              }
-            >
-              <item.icon className="w-5 h-5" />
-              {isSidebarOpen && <span className="text-body-sm font-medium">{item.label}</span>}
-            </NavLink>
-          ))}
+                }`}
+              >
+                <item.icon className="w-5 h-5" />
+                {isSidebarOpen && <span className="text-body-sm font-medium">{item.label}</span>}
+              </Link>
+            );
+          })}
         </nav>
 
         {/* Usage Bar */}
