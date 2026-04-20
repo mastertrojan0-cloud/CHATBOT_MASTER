@@ -39,16 +39,15 @@ export default function RegisterPage() {
       const formData = {
         email,
         password,
-        fullName,
-        businessName: fullName,
         name: fullName,
+        businessName: fullName,
         segment,
       };
 
       const payload = {
         email: formData.email,
         password: formData.password,
-        businessName: (formData as any).nome || formData.businessName || formData.name || formData.fullName,
+        businessName: (formData as any).nome || formData.name || formData.businessName,
         segment: formData.segment || 'COMERCIO_GERAL',
       };
 
@@ -111,14 +110,14 @@ export default function RegisterPage() {
               value={segment}
               onChange={(e) => setSegment(e.target.value)}
               options={[
-                { value: 'SALAO_BARBEARIA', label: 'Salao/Barbearia' },
+                { value: 'SALAO_BARBEARIA', label: 'Salão / Barbearia' },
                 { value: 'RESTAURANTE', label: 'Restaurante' },
                 { value: 'LOJA_ROUPAS', label: 'Loja de Roupas' },
-                { value: 'AUTONOMO', label: 'Autonomo' },
-                { value: 'COMERCIO_GERAL', label: 'Comercio Geral' },
-                { value: 'CLINIC', label: 'Clinica' },
-                { value: 'DENTAL', label: 'Dental' },
-                { value: 'FITNESS', label: 'Fitness' },
+                { value: 'AUTONOMO', label: 'Autônomo' },
+                { value: 'COMERCIO_GERAL', label: 'Comércio Geral' },
+                { value: 'CLINIC', label: 'Clínica / Consultório' },
+                { value: 'DENTAL', label: 'Odontologia' },
+                { value: 'FITNESS', label: 'Academia / Fitness' },
               ]}
             />
             <Button
