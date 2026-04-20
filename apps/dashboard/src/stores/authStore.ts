@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { Tenant, User } from '@/types';
-import { apiClient } from '@/config/api';
+import api from '@/config/api';
 
 interface AuthStore {
   user: User | null;
@@ -34,7 +34,10 @@ export const useAuthStore = create<AuthStore>((set) => ({
   login: async (email: string, password: string) => {
     try {
       console.log('[Auth] Iniciando login para:', email);
-      const response = await apiClient.login(email, password);
+      const response = await api.post('/auth/login', { email, password });
+      if (response?.success && response?.data?.accessToken) {
+        sessionStorage.setItem('flowdesk_access', response.data.accessToken);
+      }
       console.log('[Auth] Resposta da API login:', response);
       
       if (response.success) {
@@ -44,7 +47,7 @@ export const useAuthStore = create<AuthStore>((set) => ({
         }
         
         console.log('[Auth] Login bem-sucedido, obtendo tenant...');
-        const tenantResponse = await apiClient.getTenant();
+        const tenantResponse = await api.get('/tenants/me');
         console.log('[Auth] Resposta da API tenant:', tenantResponse);
         
         if (tenantResponse.success && tenantResponse.data) {
@@ -88,7 +91,8 @@ export const useAuthStore = create<AuthStore>((set) => ({
     }
   },
   logout: async () => {
-    await apiClient.logout();
+    try { await api.post('/auth/logout'); } catch {}
+    sessionStorage.removeItem('flowdesk_access');
     set({ user: null, tenant: null, token: null });
   },
 }));

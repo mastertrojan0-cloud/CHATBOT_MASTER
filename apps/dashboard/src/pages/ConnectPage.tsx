@@ -3,7 +3,7 @@ import QRCode from 'qrcode.react';
 import { Smartphone, CheckCircle, AlertCircle, Loader } from 'lucide-react';
 import { Card, CardHeader, CardBody, Alert, Badge } from '@/components';
 import { useWAHASession, useWAHAStatus } from '@/hooks/queries';
-import { apiClient } from '@/config/api';
+import api from '@/config/api';
 
 export default function ConnectPage() {
   const [isWAHAOffline, setIsWAHAOffline] = useState(false);
@@ -45,7 +45,7 @@ export default function ConnectPage() {
       setStatusMessage('Conectando ao WhatsApp...');
     } else if (status === 'SCAN_QR_CODE') {
       setStatusMessage('Escaneie o QR code com sua câmera do WhatsApp');
-      apiClient.getWAHAQR().then((res) => {
+      api.get('/sessions/qr').then((res) => {
         if (res.success && res.data?.value) {
           setQrValue(res.data.value);
         } else {

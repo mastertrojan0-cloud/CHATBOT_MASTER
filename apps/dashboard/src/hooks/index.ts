@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+﻿import { useEffect, useState } from 'react';
 import { useAuthStore } from '@/stores/authStore';
-import { apiClient } from '@/config/api';
+import api from '@/config/api';
 
 export function useLocalStorage<T>(key: string, initialValue: T) {
   const [storedValue, setStoredValue] = useState<T>(() => {
@@ -49,7 +49,7 @@ export function usePrevious<T>(value: T): T | undefined {
   return previous;
 }
 
-// Hook para inicializar autenticação
+// Hook para inicializar autenticaÃ§Ã£o
 export function useAuthInit() {
   const { setUser, setTenant, setIsLoading } = useAuthStore();
 
@@ -63,7 +63,7 @@ export function useAuthInit() {
       }
 
       try {
-        const tenantResponse = await apiClient.getTenant();
+        const tenantResponse = await api.get('/tenants/me');
         
         if (tenantResponse.success && tenantResponse.data) {
           const tenantData = tenantResponse.data;
@@ -98,3 +98,4 @@ export function useAuthInit() {
     initAuth();
   }, [setUser, setTenant, setIsLoading]);
 }
+

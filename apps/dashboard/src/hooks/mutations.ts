@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { apiClient } from '@/config/api';
+import api from '@/config/api';
 import { useAuthStore } from '@/stores/authStore';
 import { toast } from 'sonner';
 
@@ -8,7 +8,7 @@ export function useUpdateLead() {
 
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: any }) =>
-      apiClient.updateLead(id, data),
+      api.put(`/leads/${id}`, data),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ['leads'] });
       queryClient.invalidateQueries({ queryKey: ['lead', variables.id] });
@@ -24,7 +24,7 @@ export function useDeleteLead() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (id: string) => apiClient.deleteLead(id),
+    mutationFn: (id: string) => api.delete(`/leads/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['leads'] });
       toast.success('Lead deletado com sucesso!');
@@ -37,7 +37,7 @@ export function useDeleteLead() {
 
 export function useExportLeadsCSV() {
   return useMutation({
-    mutationFn: (filters?: any) => apiClient.exportLeadsCSV(filters),
+    mutationFn: (filters?: any) => api.getBlob('/leads/export/csv', filters),
     onSuccess: (data) => {
       const url = window.URL.createObjectURL(data);
       const link = document.createElement('a');
@@ -58,7 +58,7 @@ export function useUpdateBusinessSettings() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (settings: any) => apiClient.updateBusinessSettings(settings),
+    mutationFn: (settings: any) => api.put('/tenants/me', settings),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tenant'] });
       toast.success('Configurações atualizadas!');
@@ -73,7 +73,7 @@ export function useUpdateNotificationSettings() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (settings: any) => apiClient.updateNotificationSettings(settings),
+    mutationFn: (settings: any) => api.put('/tenants/me/notifications', settings),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tenant'] });
       toast.success('Notificações atualizadas!');
@@ -89,7 +89,7 @@ export function useConnectGoogleSheets() {
 
   return useMutation({
     mutationFn: ({ spreadsheetId, sheetName }: any) =>
-      apiClient.connectGoogleSheets(spreadsheetId, sheetName),
+      api.post('/tenants/me/google-sheets', { spreadsheetId, sheetName }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['integrations', 'google-sheets'] });
       toast.success('Google Sheets conectado!');

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
-import { apiClient } from '@/config/api';
+import api from '@/config/api';
 import { Button } from '@/components/Button';
 import { Input } from '@/components/Input';
 import { Select } from '@/components/Select';
@@ -51,7 +51,11 @@ export default function RegisterPage() {
         segment: formData.segment || 'COMERCIO_GERAL',
       };
 
-      const result = await apiClient.register(payload);
+      const result = await api.post('/auth/register', payload);
+      const accessToken = result?.data?.accessToken || result?.data?.token;
+      if (result?.success && accessToken) {
+        sessionStorage.setItem('flowdesk_access', accessToken);
+      }
       if (result.success) {
         toast.success('Conta criada com sucesso!');
         navigate('/dashboard');
