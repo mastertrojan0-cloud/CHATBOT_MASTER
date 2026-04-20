@@ -52,19 +52,19 @@ export class WahaService {
   }
 
   async startSession(sessionName: string): Promise<{ session: WahaSession }> {
-    const { data } = await this.client.post(`/sessions/${sessionName}/start`);
-    return data;
+    const { data } = await this.client.post('/sessions/start', { name: sessionName });
+    return { session: data };
   }
 
   async stopSession(sessionName: string): Promise<{ session: WahaSession }> {
-    const { data } = await this.client.post(`/sessions/${sessionName}/stop`);
-    return data;
+    const { data } = await this.client.post('/sessions/stop', { name: sessionName });
+    return { session: data };
   }
 
   async getSession(sessionName: string): Promise<{ session: WahaSession | null }> {
     try {
       const { data } = await this.client.get(`/sessions/${sessionName}`);
-      return data;
+      return { session: data };
     } catch (error: any) {
       if (error.response?.status === 404) {
         return { session: null };
@@ -74,8 +74,18 @@ export class WahaService {
   }
 
   async getQrCode(sessionName: string): Promise<{ qr: { code: string; expiresAt: string } | null }> {
-    const { data } = await this.client.get(`/sessions/${sessionName}/qr`);
-    return data;
+    try {
+      const { data } = await this.client.get(`/${sessionName}/auth/qr?format=raw`);
+      if (data?.value) {
+        return { qr: { code: data.value, expiresAt: '' } };
+      }
+      return { qr: null };
+    } catch (error: any) {
+      if (error.response?.status === 404 || error.response?.status === 422) {
+        return { qr: null };
+      }
+      throw error;
+    }
   }
 
   async setWebhook(sessionName: string, url: string): Promise<{ webhook: WahaWebhook }> {
