@@ -1,7 +1,10 @@
 import axios, { AxiosInstance } from 'axios';
 
-const WAHA_BASE_URL = process.env.WAHA_BASE_URL || 'http://localhost:3001';
-const WAHA_API_KEY = process.env.WAHA_API_KEY || '';
+const RAW_WAHA_URL = process.env.WAHA_URL || process.env.WAHA_BASE_URL || 'http://localhost:3001';
+const WAHA_API_KEY = process.env.WAHA_TOKEN || process.env.WAHA_API_KEY || '';
+const WAHA_BASE_URL = RAW_WAHA_URL.replace(/\/+$/, '').endsWith('/api')
+  ? RAW_WAHA_URL.replace(/\/+$/, '')
+  : `${RAW_WAHA_URL.replace(/\/+$/, '')}/api`;
 
 export interface WahaSession {
   id: string;

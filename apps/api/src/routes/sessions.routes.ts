@@ -5,6 +5,16 @@ import { wahaService } from '../services/waha.service';
 import { prisma } from '@flowdesk/db';
 
 const router = Router();
+const WAHA_SESSION_NAME = process.env.WAHA_SESSION_NAME || 'default';
+
+function getSessionNameFromTenant(tenantSessionName?: string | null): string {
+  if (!tenantSessionName || tenantSessionName.trim() === '') {
+    return WAHA_SESSION_NAME;
+  }
+
+  // WAHA CORE suporta apenas a sessão "default".
+  return WAHA_SESSION_NAME;
+}
 
 /**
  * GET /api/sessions/current
@@ -24,17 +34,18 @@ router.get(
       if (!tenant?.wahaSessionName) {
         res.json({
           success: true,
-          data: { status: 'STOPPED' },
+          data: { status: 'STOPPED', sessionName: WAHA_SESSION_NAME },
         });
         return;
       }
 
-      const wahaSession = await wahaService.getSession(tenant.wahaSessionName);
+      const sessionName = getSessionNameFromTenant(tenant.wahaSessionName);
+      const wahaSession = await wahaService.getSession(sessionName);
 
       if (!wahaSession.session) {
         res.json({
           success: true,
-          data: { status: 'STOPPED' },
+          data: { status: 'STOPPED', sessionName },
         });
         return;
       }
@@ -44,7 +55,7 @@ router.get(
         data: {
           status: wahaSession.session.status,
           phoneNumber: wahaSession.session.phone,
-          sessionName: wahaSession.session.name,
+          sessionName,
         },
       });
     } catch (error: any) {
@@ -69,7 +80,7 @@ router.post(
     try {
       const tenant = await prisma.tenant.findUnique({
         where: { id: req.tenantId },
-        select: { slug: true, wahaSessionName: true },
+        select: { wahaSessionName: true },
       });
 
       if (!tenant) {
@@ -80,17 +91,7 @@ router.post(
         return;
       }
 
-      const sessionName = tenant.wahaSessionName || `flowdesk_${tenant.slug}`;
-
-      if (!tenant.wahaSessionName) {
-        try {
-          await wahaService.createSession(sessionName);
-        } catch (error: any) {
-          if (!error.response?.status || error.response.status !== 409) {
-            throw error;
-          }
-        }
-      }
+      const sessionName = getSessionNameFromTenant(tenant.wahaSessionName);
 
       try {
         await wahaService.startSession(sessionName);
@@ -142,6 +143,16 @@ router.get(
         select: { wahaSessionName: true },
       });
 
+      if (!tenant) {
+        res.status(404).json({
+          success: false,
+          error: 'Tenant não encontrado',
+        });
+        return;
+      }
+
+      const sessionName = getSessionNameFromTenant(tenant.wahaSessionName);
+
       if (!tenant?.wahaSessionName) {
         res.status(404).json({
           success: false,
@@ -150,7 +161,7 @@ router.get(
         return;
       }
 
-      const qrResult = await wahaService.getQrCode(tenant.wahaSessionName);
+      const qrResult = await wahaService.getQrCode(sessionName);
 
       if (!qrResult.qr) {
         res.status(404).json({
@@ -194,8 +205,9 @@ router.post(
       });
 
       if (tenant?.wahaSessionName) {
+        const sessionName = getSessionNameFromTenant(tenant.wahaSessionName);
         try {
-          await wahaService.stopSession(tenant.wahaSessionName);
+          await wahaService.stopSession(sessionName);
         } catch (error: any) {
           console.log('Stop session error:', error.response?.data || error.message);
         }
@@ -238,18 +250,24 @@ router.get(
       if (!tenant?.wahaSessionName) {
         res.json({
           success: true,
-          data: { connected: false },
+          data: { connected: false, state: 'DISCONNECTED', sessionName: WAHA_SESSION_NAME },
         });
         return;
       }
 
-      const wahaSession = await wahaService.getSession(tenant.wahaSessionName);
+      const sessionName = getSessionNameFromTenant(tenant.wahaSessionName);
+      const wahaSession = await wahaService.getSession(sessionName);
+      const rawStatus = wahaSession.session?.status || 'STOPPED';
+      const connected = rawStatus === 'WORKING' || rawStatus === 'CONNECTED';
 
       res.json({
         success: true,
         data: {
-          connected: !!wahaSession.session,
+          connected,
+          state: connected ? 'CONNECTED' : 'DISCONNECTED',
           phoneNumber: wahaSession.session?.phone,
+          sessionName,
+          status: rawStatus,
           lastCheckedAt: new Date(),
         },
       });

@@ -1,14 +1,24 @@
 import React, { useEffect, useState } from 'react';
 import QRCode from 'qrcode.react';
 import { Smartphone, CheckCircle, AlertCircle, Loader } from 'lucide-react';
-import { Card, CardHeader, CardBody, Alert, Badge } from '@/components';
+import { Card, CardHeader, CardBody, Alert, Badge, Button } from '@/components';
 import { useWAHASession, useWAHAStatus } from '@/hooks/queries';
 import api from '@/config/api';
 
 export default function ConnectPage() {
   const [isWAHAOffline, setIsWAHAOffline] = useState(false);
-  const { data: wahaSession, isError: sessionError } = useWAHASession(!isWAHAOffline);
-  const { data: wahaStatus, isError: statusError } = useWAHAStatus(!isWAHAOffline);
+  const [isConnecting, setIsConnecting] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const {
+    data: wahaSession,
+    isError: sessionError,
+    refetch: refetchSession,
+  } = useWAHASession(!isWAHAOffline);
+  const {
+    data: wahaStatus,
+    isError: statusError,
+    refetch: refetchStatus,
+  } = useWAHAStatus(!isWAHAOffline);
   const [qrValue, setQrValue] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string>('');
 
@@ -58,6 +68,21 @@ export default function ConnectPage() {
       setStatusMessage('Status desconhecido');
     }
   }, [sessionStatus, isWAHAOffline]);
+
+  const handleConnect = async () => {
+    setIsConnecting(true);
+    setActionError(null);
+
+    try {
+      await api.post('/sessions/connect');
+      await Promise.all([refetchSession(), refetchStatus()]);
+    } catch (error: any) {
+      const message = error?.response?.data?.error || 'Falha ao iniciar conexão com WhatsApp';
+      setActionError(message);
+    } finally {
+      setIsConnecting(false);
+    }
+  };
 
   const getStatusBadge = () => {
     if (isWAHAOffline) {
@@ -125,6 +150,26 @@ export default function ConnectPage() {
             <span className="text-body-md text-dark-300">{statusMessage}</span>
             {getStatusBadge()}
           </div>
+
+          {(sessionStatus === 'STOPPED' || sessionStatus === 'DISCONNECTED') && !isWAHAOffline && (
+            <div className="pt-sm">
+              <Button
+                variant="primary"
+                isLoading={isConnecting}
+                onClick={handleConnect}
+              >
+                Conectar WhatsApp
+              </Button>
+            </div>
+          )}
+
+          {actionError && (
+            <Alert
+              type="error"
+              title="Erro ao conectar"
+              message={actionError}
+            />
+          )}
 
           {isWAHAOffline && (
             <Alert
