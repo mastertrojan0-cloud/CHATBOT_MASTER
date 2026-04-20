@@ -32,11 +32,10 @@ export default function SettingsPage() {
   const sheetsInfo = (sheetsConfig as any)?.data || sheetsConfig || {};
 
   const [businessSettings, setBusinessSettings] = useState({
-    businessName: typeof tenantInfo?.businessName === 'string' ? tenantInfo.businessName : '',
-    industry: typeof tenantInfo?.industry === 'string' ? tenantInfo.industry : '',
-    phone: typeof tenantInfo?.phone === 'string' ? tenantInfo.phone : '',
-    email: typeof tenantInfo?.email === 'string' ? tenantInfo.email : '',
-    website: typeof tenantInfo?.website === 'string' ? tenantInfo.website : '',
+    name: '',
+    businessSegment: '',
+    notifyPhone: '',
+    notifyEmail: '',
   });
 
   const [notificationSettings, setNotificationSettings] = useState({
@@ -55,11 +54,11 @@ export default function SettingsPage() {
 
   useEffect(() => {
     setBusinessSettings({
-      businessName: typeof tenantInfo?.businessName === 'string' ? tenantInfo.businessName : '',
-      industry: typeof tenantInfo?.industry === 'string' ? tenantInfo.industry : '',
-      phone: typeof tenantInfo?.phone === 'string' ? tenantInfo.phone : '',
-      email: typeof tenantInfo?.email === 'string' ? tenantInfo.email : '',
-      website: typeof tenantInfo?.website === 'string' ? tenantInfo.website : '',
+      businessName: typeof tenantInfo?.name === 'string' ? tenantInfo.name : '',
+      industry: typeof tenantInfo?.businessSegment === 'string' ? tenantInfo.businessSegment : '',
+      phone: typeof tenantInfo?.notifyPhone === 'string' ? tenantInfo.notifyPhone : '',
+      email: typeof tenantInfo?.notifyEmail === 'string' ? tenantInfo.notifyEmail : '',
+      website: '',
     });
 
     setNotificationSettings({

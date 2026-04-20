@@ -58,7 +58,11 @@ export function useUpdateBusinessSettings() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (settings: any) => api.put('/tenants/me', settings),
+    mutationFn: (settings: any) => api.patch('/tenants/me', {
+      name: settings.businessName,
+      notifyPhone: settings.phone || null,
+      notifyEmail: settings.email || null,
+    }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['tenant'] });
       toast.success('Configurações atualizadas!');
