@@ -29,6 +29,19 @@ function getFirstValidBaseUrl(...candidates: Array<string | undefined>): string 
   return `http://localhost:${port}`;
 }
 
+function getRequestBaseUrl(req: AuthRequest): string | undefined {
+  const forwardedProto = req.header('x-forwarded-proto')?.split(',')[0]?.trim();
+  const forwardedHost = req.header('x-forwarded-host')?.split(',')[0]?.trim();
+  const host = forwardedHost || req.header('host')?.trim();
+
+  if (!host) {
+    return undefined;
+  }
+
+  const protocol = forwardedProto || (req.secure ? 'https' : 'http');
+  return `${protocol}://${host}`.replace(/\/$/, '');
+}
+
 async function getSessionName(req: AuthRequest): Promise<string> {
   const tenantId = req.tenantId;
 
@@ -97,11 +110,13 @@ router.post(
     try {
       const sessionName = await getSessionName(req);
       const webhookBaseUrl = getFirstValidBaseUrl(
+        getRequestBaseUrl(req),
         process.env.WAHA_WEBHOOK_BASE_URL,
         process.env.RAILWAY_STATIC_URL,
         process.env.APP_URL
       );
       const webhookUrl = `${webhookBaseUrl}/api/webhooks/waha/${sessionName}`;
+      console.log(`[sessions/connect] webhook="${webhookUrl}"`);
 
       const { session } = await wahaService.getSession(sessionName);
       const status = session?.status || '';
