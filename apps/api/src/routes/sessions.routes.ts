@@ -61,6 +61,19 @@ async function getSessionName(req: AuthRequest): Promise<string> {
   return `tenant-${tenantId}`;
 }
 
+function getWebhookBaseUrl(req: AuthRequest): string {
+  return getFirstValidBaseUrl(
+    getRequestBaseUrl(req),
+    process.env.WAHA_WEBHOOK_BASE_URL,
+    process.env.RAILWAY_STATIC_URL,
+    process.env.APP_URL
+  );
+}
+
+function getWebhookUrl(req: AuthRequest, sessionName: string): string {
+  return `${getWebhookBaseUrl(req)}/api/webhooks/waha/${sessionName}`;
+}
+
 /**
  * GET /api/sessions/current
  */
@@ -109,13 +122,7 @@ router.post(
   async (req: AuthRequest, res: Response) => {
     try {
       const sessionName = await getSessionName(req);
-      const webhookBaseUrl = getFirstValidBaseUrl(
-        getRequestBaseUrl(req),
-        process.env.WAHA_WEBHOOK_BASE_URL,
-        process.env.RAILWAY_STATIC_URL,
-        process.env.APP_URL
-      );
-      const webhookUrl = `${webhookBaseUrl}/api/webhooks/waha/${sessionName}`;
+      const webhookUrl = getWebhookUrl(req, sessionName);
       console.log(`[sessions/connect] webhook="${webhookUrl}"`);
 
       const { session } = await wahaService.getSession(sessionName);
@@ -297,7 +304,16 @@ router.post(
   async (req: AuthRequest, res: Response) => {
     try {
       const sessionName = await getSessionName(req);
+      const webhookUrl = getWebhookUrl(req, sessionName);
       console.log(`[sessions/reconnect] restarting "${sessionName}"`);
+      console.log(`[sessions/reconnect] webhook="${webhookUrl}"`);
+
+      try {
+        await wahaService.updateSessionConfig(sessionName, webhookUrl);
+      } catch (e: any) {
+        console.log('[sessions/reconnect] updateConfig:', e.response?.data || e.message);
+      }
+
       try {
         await wahaService.restartSession(sessionName);
       } catch (e: any) {
