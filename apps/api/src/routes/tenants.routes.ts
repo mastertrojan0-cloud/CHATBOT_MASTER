@@ -5,8 +5,40 @@ import { sendSuccess, sendError } from '../lib/response';
 import { stripe } from '../config/stripe';
 import { prisma } from '@flowdesk/db';
 import { PlanType } from '@prisma/client';
+import { TelegramService } from '../services/telegram.service';
 
 const router = Router();
+
+function inferApiBaseUrl(req: AuthRequest): string {
+  const configuredBaseUrl =
+    process.env.API_URL ||
+    process.env.APP_URL ||
+    process.env.RAILWAY_STATIC_URL ||
+    (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : '');
+
+  if (configuredBaseUrl) {
+    return configuredBaseUrl.replace(/\/+$/, '');
+  }
+
+  const forwardedProto = String(req.headers['x-forwarded-proto'] || req.protocol || 'https')
+    .split(',')[0]
+    .trim();
+  const forwardedHost = String(req.headers['x-forwarded-host'] || req.get('host') || '')
+    .split(',')[0]
+    .trim();
+
+  return `${forwardedProto}://${forwardedHost}`.replace(/\/+$/, '');
+}
+
+function buildTelegramWebhookUrl(req: AuthRequest, tenantSlug: string): string {
+  return `${inferApiBaseUrl(req)}/api/webhooks/telegram/${tenantSlug}`;
+}
+
+function maskTelegramToken(token: string | null | undefined): string | null {
+  if (!token) return null;
+  if (token.length <= 10) return '********';
+  return `${token.slice(0, 6)}...${token.slice(-4)}`;
+}
 
 /**
  * GET /api/tenants/me
@@ -57,6 +89,8 @@ router.get(
           notifyPhone: tenant.notifyPhone,
           stripeCustomerId: tenant.stripeCustomerId,
           planExpiresAt: tenant.planExpiresAt,
+          telegramBotUsername: tenant.telegramBotUsername,
+          telegramConfigured: Boolean(tenant.telegramBotToken),
           owner: owner ? { email: owner.email, fullName: owner.fullName } : null,
         },
       });
@@ -129,6 +163,298 @@ router.patch(
       res.status(500).json({
         success: false,
         error: 'Falha ao atualizar tenant',
+      });
+    }
+  }
+);
+
+router.get(
+  '/me/telegram',
+  authenticatedLimiter,
+  requireAuth,
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const tenant = await prisma.tenant.findUnique({
+        where: { id: req.tenantId },
+        select: {
+          id: true,
+          slug: true,
+          telegramBotToken: true,
+          telegramBotUsername: true,
+          telegramBotId: true,
+          telegramWebhookSecret: true,
+          telegramWebhookUrl: true,
+          telegramWebhookActiveAt: true,
+        },
+      });
+
+      if (!tenant) {
+        res.status(404).json({
+          success: false,
+          error: 'Tenant não encontrado',
+        });
+        return;
+      }
+
+      const targetWebhookUrl = buildTelegramWebhookUrl(req, tenant.slug);
+      let webhookInfo: any = null;
+      let lastError: string | null = null;
+
+      if (tenant.telegramBotToken) {
+        try {
+          const telegramService = TelegramService.fromToken(tenant.telegramBotToken);
+          webhookInfo = await telegramService.getWebhookInfo();
+        } catch (error: any) {
+          lastError = error?.message || 'Falha ao consultar bot do Telegram';
+        }
+      }
+
+      res.json({
+        success: true,
+        data: {
+          configured: Boolean(tenant.telegramBotToken),
+          tenantSlug: tenant.slug,
+          botUsername: tenant.telegramBotUsername,
+          botId: tenant.telegramBotId,
+          tokenPreview: maskTelegramToken(tenant.telegramBotToken),
+          webhookSecretConfigured: Boolean(tenant.telegramWebhookSecret),
+          webhookTargetUrl: targetWebhookUrl,
+          webhookConfiguredUrl: tenant.telegramWebhookUrl,
+          webhookRegistered: webhookInfo?.url ? webhookInfo.url === targetWebhookUrl : false,
+          webhookInfo,
+          webhookActiveAt: tenant.telegramWebhookActiveAt,
+          lastError,
+        },
+      });
+    } catch (error) {
+      console.error('Error fetching Telegram config:', error);
+      res.status(500).json({
+        success: false,
+        error: 'Falha ao buscar configuração do Telegram',
+      });
+    }
+  }
+);
+
+router.patch(
+  '/me/telegram',
+  authenticatedLimiter,
+  requireAuth,
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const {
+        botToken,
+        webhookSecret,
+        clearToken,
+      } = req.body as {
+        botToken?: string;
+        webhookSecret?: string;
+        clearToken?: boolean;
+      };
+
+      const tenant = await prisma.tenant.findUnique({
+        where: { id: req.tenantId },
+        select: { id: true, slug: true, telegramBotToken: true },
+      });
+
+      if (!tenant) {
+        res.status(404).json({
+          success: false,
+          error: 'Tenant não encontrado',
+        });
+        return;
+      }
+
+      if (clearToken) {
+        const updated = await prisma.tenant.update({
+          where: { id: tenant.id },
+          data: {
+            telegramBotToken: null,
+            telegramBotUsername: null,
+            telegramBotId: null,
+            telegramWebhookSecret: null,
+            telegramWebhookUrl: null,
+            telegramWebhookActiveAt: null,
+          },
+        });
+
+        res.json({
+          success: true,
+          data: {
+            configured: false,
+            tenantSlug: updated.slug,
+          },
+        });
+        return;
+      }
+
+      const normalizedToken = botToken?.trim() || tenant.telegramBotToken;
+      if (!normalizedToken) {
+        res.status(400).json({
+          success: false,
+          error: 'Informe o token do bot do Telegram',
+        });
+        return;
+      }
+
+      const telegramService = TelegramService.fromToken(normalizedToken);
+      const profile = await telegramService.getMe();
+
+      const updated = await prisma.tenant.update({
+        where: { id: tenant.id },
+        data: {
+          telegramBotToken: normalizedToken,
+          telegramBotUsername: profile.username || null,
+          telegramBotId: String(profile.id),
+          telegramWebhookSecret: webhookSecret?.trim() ? webhookSecret.trim() : null,
+        },
+      });
+
+      res.json({
+        success: true,
+        data: {
+          configured: true,
+          tenantSlug: updated.slug,
+          botUsername: updated.telegramBotUsername,
+          botId: updated.telegramBotId,
+          tokenPreview: maskTelegramToken(updated.telegramBotToken),
+          webhookSecretConfigured: Boolean(updated.telegramWebhookSecret),
+          webhookTargetUrl: buildTelegramWebhookUrl(req, updated.slug),
+        },
+      });
+    } catch (error: any) {
+      console.error('Error saving Telegram config:', error);
+      res.status(400).json({
+        success: false,
+        error: error?.message || 'Falha ao salvar configuração do Telegram',
+      });
+    }
+  }
+);
+
+router.post(
+  '/me/telegram/test',
+  authenticatedLimiter,
+  requireAuth,
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const tenant = await prisma.tenant.findUnique({
+        where: { id: req.tenantId },
+        select: {
+          id: true,
+          slug: true,
+          telegramBotToken: true,
+          telegramBotUsername: true,
+        },
+      });
+
+      if (!tenant?.telegramBotToken) {
+        res.status(400).json({
+          success: false,
+          error: 'Configure primeiro o token do bot do Telegram',
+        });
+        return;
+      }
+
+      const telegramService = TelegramService.fromToken(tenant.telegramBotToken);
+      const [profile, webhookInfo] = await Promise.all([
+        telegramService.getMe(),
+        telegramService.getWebhookInfo(),
+      ]);
+
+      res.json({
+        success: true,
+        data: {
+          tenantSlug: tenant.slug,
+          botUsername: profile.username || tenant.telegramBotUsername,
+          botId: String(profile.id),
+          webhookInfo,
+        },
+      });
+    } catch (error: any) {
+      console.error('Error testing Telegram config:', error);
+      res.status(400).json({
+        success: false,
+        error: error?.message || 'Falha ao testar bot do Telegram',
+      });
+    }
+  }
+);
+
+router.post(
+  '/me/telegram/webhook',
+  authenticatedLimiter,
+  requireAuth,
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const { action } = req.body as { action?: 'register' | 'delete' };
+      const tenant = await prisma.tenant.findUnique({
+        where: { id: req.tenantId },
+        select: {
+          id: true,
+          slug: true,
+          telegramBotToken: true,
+          telegramWebhookSecret: true,
+        },
+      });
+
+      if (!tenant?.telegramBotToken) {
+        res.status(400).json({
+          success: false,
+          error: 'Configure primeiro o token do bot do Telegram',
+        });
+        return;
+      }
+
+      const telegramService = TelegramService.fromToken(tenant.telegramBotToken);
+      const targetWebhookUrl = buildTelegramWebhookUrl(req, tenant.slug);
+
+      if (action === 'delete') {
+        await telegramService.deleteWebhook(false);
+
+        await prisma.tenant.update({
+          where: { id: tenant.id },
+          data: {
+            telegramWebhookUrl: null,
+            telegramWebhookActiveAt: null,
+          },
+        });
+
+        res.json({
+          success: true,
+          data: {
+            action: 'delete',
+            webhookRegistered: false,
+          },
+        });
+        return;
+      }
+
+      await telegramService.setWebhook(targetWebhookUrl, tenant.telegramWebhookSecret || undefined);
+      const webhookInfo = await telegramService.getWebhookInfo();
+
+      await prisma.tenant.update({
+        where: { id: tenant.id },
+        data: {
+          telegramWebhookUrl: targetWebhookUrl,
+          telegramWebhookActiveAt: new Date(),
+        },
+      });
+
+      res.json({
+        success: true,
+        data: {
+          action: 'register',
+          webhookRegistered: webhookInfo?.url === targetWebhookUrl,
+          webhookTargetUrl: targetWebhookUrl,
+          webhookInfo,
+        },
+      });
+    } catch (error: any) {
+      console.error('Error configuring Telegram webhook:', error);
+      res.status(400).json({
+        success: false,
+        error: error?.message || 'Falha ao configurar webhook do Telegram',
       });
     }
   }

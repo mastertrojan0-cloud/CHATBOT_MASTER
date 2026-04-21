@@ -22,7 +22,6 @@ import { wahaWebhookHandler } from './webhooks/waha.webhook';
 import { telegramWebhookHandler } from './webhooks/telegram.webhook';
 import { logger } from './lib/logger';
 import { wahaService } from './services/waha.service';
-import { telegramService } from './services/telegram.service';
 import './config/env';
 
 const app: Express = express();
@@ -134,7 +133,6 @@ app.get('/api/health/telegram', (_req: Request, res: Response) => {
   res.json({
     success: true,
     data: {
-      configured: telegramService.hasBotToken(),
       dbConnected,
       dbError,
       timestamp: new Date().toISOString(),

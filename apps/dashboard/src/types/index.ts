@@ -135,6 +135,26 @@ export interface GoogleSheetsConfig {
   sheetName?: string;
 }
 
+export interface TelegramIntegration {
+  configured: boolean;
+  tenantSlug: string;
+  botUsername?: string | null;
+  botId?: string | null;
+  tokenPreview?: string | null;
+  webhookSecretConfigured: boolean;
+  webhookTargetUrl: string;
+  webhookConfiguredUrl?: string | null;
+  webhookRegistered: boolean;
+  webhookActiveAt?: string | null;
+  lastError?: string | null;
+  webhookInfo?: {
+    url?: string;
+    pending_update_count?: number;
+    last_error_message?: string;
+    last_error_date?: number;
+  } | null;
+}
+
 // Pagination
 export interface PaginationParams {
   page: number;

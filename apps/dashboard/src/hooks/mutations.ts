@@ -104,6 +104,53 @@ export function useConnectGoogleSheets() {
   });
 }
 
+export function useSaveTelegramConfig() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (payload: { botToken?: string; webhookSecret?: string; clearToken?: boolean }) =>
+      api.patch('/tenants/me/telegram', payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['telegram', 'integration'] });
+      queryClient.invalidateQueries({ queryKey: ['tenant'] });
+      toast.success('Configuracao do Telegram salva com sucesso!');
+    },
+    onError: (error: any) => {
+      toast.error(error?.response?.data?.error || 'Erro ao salvar configuracao do Telegram');
+    },
+  });
+}
+
+export function useTestTelegramConfig() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: () => api.post('/tenants/me/telegram/test'),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['telegram', 'integration'] });
+      toast.success('Bot do Telegram validado com sucesso!');
+    },
+    onError: (error: any) => {
+      toast.error(error?.response?.data?.error || 'Erro ao testar bot do Telegram');
+    },
+  });
+}
+
+export function useConfigureTelegramWebhook() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (action: 'register' | 'delete') => api.post('/tenants/me/telegram/webhook', { action }),
+    onSuccess: (_data, action) => {
+      queryClient.invalidateQueries({ queryKey: ['telegram', 'integration'] });
+      toast.success(action === 'register' ? 'Webhook do Telegram ativado!' : 'Webhook do Telegram removido!');
+    },
+    onError: (error: any) => {
+      toast.error(error?.response?.data?.error || 'Erro ao configurar webhook do Telegram');
+    },
+  });
+}
+
 export function useLogout() {
   const queryClient = useQueryClient();
   const authStore = useAuthStore();

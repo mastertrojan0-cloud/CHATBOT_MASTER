@@ -3,7 +3,7 @@ import { prisma } from '@flowdesk/db';
 import { ContactSource, ConversationStatus, LeadStatus, MessageChannel, Prisma, type PlanType, type Tenant } from '@prisma/client';
 import { getPresetFlow, runFlowEngine, type FlowContext, type FlowLead } from '@flowdesk/engine';
 import { logger } from '../lib/logger';
-import { telegramService } from '../services/telegram.service';
+import { TelegramService } from '../services/telegram.service';
 
 interface TelegramUser {
   id: number;
@@ -98,40 +98,22 @@ function buildContactName(message: TelegramMessage): string | null {
   return message.from?.username?.trim() || null;
 }
 
-function assertTelegramSecret(req: Request): boolean {
-  const expected = process.env.TELEGRAM_WEBHOOK_SECRET?.trim();
+function assertTelegramSecret(req: Request, expected: string | null | undefined): boolean {
+  const normalizedExpected = expected?.trim();
 
-  if (!expected) {
+  if (!normalizedExpected) {
     return true;
   }
 
   const received = String(req.headers['x-telegram-bot-api-secret-token'] || '').trim();
-  return received.length > 0 && received === expected;
+  return received.length > 0 && received === normalizedExpected;
 }
 
 export async function telegramWebhookHandler(req: Request, res: Response): Promise<void> {
   const { tenantSlug } = req.params;
   const body = req.body as TelegramWebhookBody;
 
-  if (!assertTelegramSecret(req)) {
-    res.status(401).json({ success: false, error: 'Invalid Telegram webhook secret' });
-    return;
-  }
-
-  res.status(200).json({ received: true });
-
-  const message = getTelegramMessage(body);
-  const messageText = getMessageText(message);
-
   try {
-    if (!message || !messageText) {
-      return;
-    }
-
-    if (message.chat.type !== 'private') {
-      return;
-    }
-
     const tenant = await prisma.tenant.findFirst({
       where: {
         slug: tenantSlug,
@@ -141,6 +123,31 @@ export async function telegramWebhookHandler(req: Request, res: Response): Promi
 
     if (!tenant) {
       logger.warn({ tenantSlug }, 'Telegram webhook received for unknown tenant');
+      res.status(200).json({ received: true });
+      return;
+    }
+
+    if (!assertTelegramSecret(req, tenant.telegramWebhookSecret)) {
+      res.status(401).json({ success: false, error: 'Invalid Telegram webhook secret' });
+      return;
+    }
+
+    if (!tenant.telegramBotToken) {
+      res.status(200).json({ received: true });
+      return;
+    }
+
+    res.status(200).json({ received: true });
+
+    const telegramService = TelegramService.fromToken(tenant.telegramBotToken);
+    const message = getTelegramMessage(body);
+    const messageText = getMessageText(message);
+
+    if (!message || !messageText) {
+      return;
+    }
+
+    if (message.chat.type !== 'private') {
       return;
     }
 

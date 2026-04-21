@@ -117,6 +117,12 @@ model Tenant {
   wahaSessionName           String
   wahaApiKey                String?
   wahaInstanceId            String?
+  telegramBotToken          String?
+  telegramBotUsername       String?
+  telegramBotId             String?
+  telegramWebhookSecret     String?
+  telegramWebhookUrl        String?
+  telegramWebhookActiveAt   DateTime?
   monthlyConversationLimit  Int            @default(100)
   monthlyMessageLimit       Int            @default(1000)
   monthlyLeadLimit          Int            @default(100)

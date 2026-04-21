@@ -143,17 +143,26 @@ export function useGoogleSheetsConfig(enabled: boolean = true) {
   });
 }
 
-export function useTelegramHealth(enabled: boolean = true) {
+export function useTelegramIntegration(enabled: boolean = true) {
   return useQuery({
-    queryKey: ['telegram', 'health'],
+    queryKey: ['telegram', 'integration'],
     queryFn: async () => {
-      const result = await api.get('/health/telegram');
+      const result = await api.get('/tenants/me/telegram');
       const payload = (result?.data ?? result) as any;
 
       return {
         configured: Boolean(payload?.configured),
-        dbConnected: Boolean(payload?.dbConnected),
-        timestamp: payload?.timestamp || null,
+        tenantSlug: payload?.tenantSlug || '',
+        botUsername: payload?.botUsername || null,
+        botId: payload?.botId || null,
+        tokenPreview: payload?.tokenPreview || null,
+        webhookSecretConfigured: Boolean(payload?.webhookSecretConfigured),
+        webhookTargetUrl: payload?.webhookTargetUrl || '',
+        webhookConfiguredUrl: payload?.webhookConfiguredUrl || null,
+        webhookRegistered: Boolean(payload?.webhookRegistered),
+        webhookActiveAt: payload?.webhookActiveAt || null,
+        lastError: payload?.lastError || null,
+        webhookInfo: payload?.webhookInfo || null,
       };
     },
     enabled,

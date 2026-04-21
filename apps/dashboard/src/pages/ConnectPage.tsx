@@ -1,8 +1,9 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Smartphone, CheckCircle, AlertCircle, Loader, RefreshCw, Send, Copy } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Smartphone, CheckCircle, AlertCircle, Loader, RefreshCw, Send, Copy, Bot } from 'lucide-react';
 import QRCode from 'qrcode.react';
-import { Card, CardHeader, CardBody, Alert, Badge, Button, ConfirmDialog } from '@/components';
-import { useWAHASession, useWAHAQR, useTelegramHealth, useTenant } from '@/hooks/queries';
+import { Card, CardHeader, CardBody, Alert, Badge, Button, ConfirmDialog, Input } from '@/components';
+import { useWAHASession, useWAHAQR, useTelegramIntegration } from '@/hooks/queries';
+import { useConfigureTelegramWebhook, useSaveTelegramConfig, useTestTelegramConfig } from '@/hooks/mutations';
 import api from '@/config/api';
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -15,9 +16,9 @@ const STUCK_STATUSES = ['SCAN_QR_CODE', 'STARTING'];
 function statusLabel(status: string): string {
   if (status === 'WORKING') return 'WhatsApp conectado com sucesso!';
   if (status === SCANNING_STATUS) return 'Escaneie o QR code com seu WhatsApp';
-  if (status === 'STARTING') return 'Iniciando conexão com WhatsApp...';
+  if (status === 'STARTING') return 'Iniciando conexao com WhatsApp...';
   if (status === 'STOPPED') return 'WhatsApp desconectado';
-  if (status === 'FAILED') return 'Falha na conexão. Clique em Conectar para tentar novamente.';
+  if (status === 'FAILED') return 'Falha na conexao. Clique em Conectar para tentar novamente.';
   if (!status) return 'Carregando...';
   return `Aguardando... (${status})`;
 }
@@ -32,6 +33,8 @@ export default function ConnectPage() {
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [telegramCopyFeedback, setTelegramCopyFeedback] = useState<string | null>(null);
+  const [telegramBotToken, setTelegramBotToken] = useState('');
+  const [telegramWebhookSecret, setTelegramWebhookSecret] = useState('');
   const fastPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [stuckTimer, setStuckTimer] = useState(0);
 
@@ -41,8 +44,13 @@ export default function ConnectPage() {
     refetch: refetchSession,
   } = useWAHASession();
   const { data: qrImageData } = useWAHAQR(sessionData?.status === SCANNING_STATUS);
-  const { data: tenantData } = useTenant();
-  const { data: telegramHealth, isError: telegramHealthError } = useTelegramHealth();
+  const {
+    data: telegramIntegration,
+    isError: telegramIntegrationError,
+  } = useTelegramIntegration();
+  const saveTelegramConfigMutation = useSaveTelegramConfig();
+  const testTelegramConfigMutation = useTestTelegramConfig();
+  const configureTelegramWebhookMutation = useConfigureTelegramWebhook();
 
   const sessionStatus = sessionData?.status || '';
   const isScanning = sessionStatus === SCANNING_STATUS;
@@ -53,19 +61,6 @@ export default function ConnectPage() {
 
   const qrImage = qrImageData?.kind === 'image' ? qrImageData.value : null;
   const qrText = qrImageData?.kind === 'text' ? qrImageData.value : null;
-  const tenantInfo = (tenantData as any)?.data || tenantData || {};
-  const tenantSlug = typeof tenantInfo?.slug === 'string' ? tenantInfo.slug : '';
-
-  const telegramWebhookUrl = useMemo(() => {
-    if (!tenantSlug) return '';
-
-    const apiBase = (import.meta.env.VITE_API_URL as string | undefined) || '/api';
-    const normalizedBase = apiBase.startsWith('http')
-      ? apiBase.replace(/\/+$/, '')
-      : `${window.location.origin}${apiBase.startsWith('/') ? apiBase : `/${apiBase}`}`.replace(/\/+$/, '');
-
-    return `${normalizedBase}/webhooks/telegram/${tenantSlug}`;
-  }, [tenantSlug]);
 
   useEffect(() => {
     return () => {
@@ -74,6 +69,11 @@ export default function ConnectPage() {
       }
     };
   }, [qrImage]);
+
+  useEffect(() => {
+    setTelegramBotToken('');
+    setTelegramWebhookSecret('');
+  }, [telegramIntegration?.tokenPreview]);
 
   const startFastPoll = () => {
     if (fastPollRef.current) clearInterval(fastPollRef.current);
@@ -144,7 +144,7 @@ export default function ConnectPage() {
       startFastPoll();
       await refetchSession();
     } catch (error: any) {
-      setActionError(extractErrorMessage(error, 'Falha ao iniciar conexão com WhatsApp'));
+      setActionError(extractErrorMessage(error, 'Falha ao iniciar conexao com WhatsApp'));
     } finally {
       setIsConnecting(false);
     }
@@ -197,7 +197,7 @@ export default function ConnectPage() {
       queryClient.invalidateQueries({ queryKey: ['waha', 'qr'] });
       await refetchSession();
     } catch (error: any) {
-      setActionError(extractErrorMessage(error, 'Falha ao resetar conexão WhatsApp'));
+      setActionError(extractErrorMessage(error, 'Falha ao resetar conexao WhatsApp'));
     } finally {
       setIsResetting(false);
     }
@@ -207,18 +207,44 @@ export default function ConnectPage() {
     setActionError(null);
     queryClient.invalidateQueries({ queryKey: ['waha', 'session'] });
     queryClient.invalidateQueries({ queryKey: ['waha', 'qr'] });
-    queryClient.invalidateQueries({ queryKey: ['telegram', 'health'] });
+    queryClient.invalidateQueries({ queryKey: ['telegram', 'integration'] });
   };
 
   const handleCopyTelegramWebhook = async () => {
-    if (!telegramWebhookUrl) return;
+    if (!telegramIntegration?.webhookTargetUrl) return;
 
     try {
-      await navigator.clipboard.writeText(telegramWebhookUrl);
+      await navigator.clipboard.writeText(telegramIntegration.webhookTargetUrl);
       setTelegramCopyFeedback('Webhook copiado');
     } catch {
       setTelegramCopyFeedback('Nao foi possivel copiar');
     }
+  };
+
+  const handleSaveTelegramConfig = async () => {
+    await saveTelegramConfigMutation.mutateAsync({
+      botToken: telegramBotToken.trim() || undefined,
+      webhookSecret: telegramWebhookSecret.trim() || undefined,
+    });
+    setTelegramBotToken('');
+  };
+
+  const handleClearTelegramConfig = async () => {
+    await saveTelegramConfigMutation.mutateAsync({ clearToken: true });
+    setTelegramBotToken('');
+    setTelegramWebhookSecret('');
+  };
+
+  const handleTestTelegramConfig = async () => {
+    await testTelegramConfigMutation.mutateAsync();
+  };
+
+  const handleRegisterTelegramWebhook = async () => {
+    await configureTelegramWebhookMutation.mutateAsync('register');
+  };
+
+  const handleDeleteTelegramWebhook = async () => {
+    await configureTelegramWebhookMutation.mutateAsync('delete');
   };
 
   const getStatusBadge = () => {
@@ -263,14 +289,14 @@ export default function ConnectPage() {
   };
 
   return (
-    <div className="p-lg space-y-lg max-w-2xl">
+    <div className="p-lg space-y-lg max-w-4xl">
       <div>
         <h1 className="text-display-md font-display font-bold text-dark-100 flex items-center gap-md">
           <Smartphone className="w-8 h-8 text-brand-500" />
           Conectar Canais
         </h1>
         <p className="text-body-md text-dark-400 mt-xs">
-          Conecte seus canais para começar a gerenciar leads no sistema
+          Conecte e configure seus canais sem sair do painel
         </p>
       </div>
 
@@ -354,34 +380,57 @@ export default function ConnectPage() {
 
       <Card elevated className="p-lg">
         <CardHeader
-          title="Canal Telegram"
-          subtitle="Ative um bot do Telegram usando o mesmo fluxo de atendimento do sistema"
+          title="Configurar Telegram"
+          subtitle="Cadastre o bot, valide o token e ative o webhook direto pela interface"
         />
-        <CardBody className="mt-md space-y-md">
-          <div className="flex items-center justify-between gap-md">
-            <div>
-              <h3 className="text-body-md font-medium text-dark-100 flex items-center gap-sm">
-                <Send className="w-4 h-4 text-brand-500" />
-                Status do bot
-              </h3>
-              <p className="text-body-sm text-dark-400 mt-xs">
-                {telegramHealthError
-                  ? 'Nao foi possivel verificar o Telegram agora.'
-                  : telegramHealth?.configured
-                    ? 'Token do bot detectado no backend.'
-                    : 'Configure o token do bot para habilitar o canal Telegram.'}
-              </p>
+        <CardBody className="mt-md space-y-lg">
+          <div className="flex items-center justify-between gap-md flex-wrap">
+            <div className="flex items-center gap-sm">
+              <Bot className="w-5 h-5 text-brand-500" />
+              <div>
+                <p className="text-body-md font-medium text-dark-100">
+                  {telegramIntegration?.botUsername ? `@${telegramIntegration.botUsername}` : 'Bot ainda nao conectado'}
+                </p>
+                <p className="text-body-sm text-dark-400">
+                  {telegramIntegrationError
+                    ? 'Nao foi possivel buscar a integracao do Telegram.'
+                    : telegramIntegration?.configured
+                      ? 'Token salvo no tenant e pronto para validacao.'
+                      : 'Informe o token do bot para comecar a configuracao.'}
+                </p>
+              </div>
             </div>
-            <Badge variant={telegramHealth?.configured ? 'success' : 'warning'}>
-              {telegramHealth?.configured ? 'Configurado' : 'Pendente'}
+            <Badge variant={telegramIntegration?.webhookRegistered ? 'success' : telegramIntegration?.configured ? 'brand' : 'warning'}>
+              {telegramIntegration?.webhookRegistered ? 'Webhook ativo' : telegramIntegration?.configured ? 'Bot salvo' : 'Pendente'}
             </Badge>
+          </div>
+
+          <div className="grid gap-md md:grid-cols-2">
+            <Input
+              id="telegram-bot-token"
+              name="telegramBotToken"
+              label="Token do Bot"
+              value={telegramBotToken}
+              onChange={(e) => setTelegramBotToken(e.target.value)}
+              placeholder={telegramIntegration?.tokenPreview || '123456:ABCDEF...'}
+              helperText="Cole o token gerado pelo BotFather. Se ja existir, so preencha para trocar."
+            />
+            <Input
+              id="telegram-webhook-secret"
+              name="telegramWebhookSecret"
+              label="Secret do Webhook"
+              value={telegramWebhookSecret}
+              onChange={(e) => setTelegramWebhookSecret(e.target.value)}
+              placeholder={telegramIntegration?.webhookSecretConfigured ? 'Ja configurado' : 'Opcional'}
+              helperText="Opcional. O FlowDesk envia esse secret para validar chamadas do Telegram."
+            />
           </div>
 
           <div className="grid gap-md md:grid-cols-2">
             <div className="p-md rounded-md bg-dark-700/50">
               <p className="text-body-sm text-dark-400">Tenant slug</p>
               <p className="text-body-md font-medium text-dark-100 mt-xs">
-                {tenantSlug || 'Slug ainda nao disponivel'}
+                {telegramIntegration?.tenantSlug || 'Nao disponivel'}
               </p>
             </div>
 
@@ -389,12 +438,12 @@ export default function ConnectPage() {
               <p className="text-body-sm text-dark-400">Webhook do sistema</p>
               <div className="mt-xs flex items-start gap-sm">
                 <p className="text-body-sm text-dark-100 break-all flex-1">
-                  {telegramWebhookUrl || 'A URL aparece aqui quando o tenant tiver slug'}
+                  {telegramIntegration?.webhookTargetUrl || 'Aguardando dados do tenant'}
                 </p>
                 <button
                   type="button"
                   onClick={handleCopyTelegramWebhook}
-                  disabled={!telegramWebhookUrl}
+                  disabled={!telegramIntegration?.webhookTargetUrl}
                   className="p-1 text-dark-400 hover:text-brand-500 disabled:opacity-40"
                   title="Copiar webhook"
                 >
@@ -407,23 +456,95 @@ export default function ConnectPage() {
             </div>
           </div>
 
-          <Alert
-            type={telegramHealth?.configured ? 'success' : 'warning'}
-            title={telegramHealth?.configured ? 'Backend pronto para Telegram' : 'Falta configurar o bot'}
-            message={
-              telegramHealth?.configured
-                ? 'Crie ou atualize o webhook do seu bot apontando para a URL acima. O sistema vai receber a mensagem, rodar o fluxo e responder pelo Telegram.'
-                : 'Defina TELEGRAM_BOT_TOKEN no backend e depois registre o webhook do bot para esta URL.'
-            }
-          />
+          <div className="flex flex-wrap gap-sm">
+            <Button
+              variant="primary"
+              isLoading={saveTelegramConfigMutation.isPending}
+              onClick={handleSaveTelegramConfig}
+              disabled={!telegramBotToken.trim() && !telegramWebhookSecret.trim()}
+            >
+              Salvar Bot
+            </Button>
+            <Button
+              variant="secondary"
+              isLoading={testTelegramConfigMutation.isPending}
+              onClick={handleTestTelegramConfig}
+              disabled={!telegramIntegration?.configured}
+            >
+              Testar Bot
+            </Button>
+            <Button
+              variant="outline"
+              isLoading={configureTelegramWebhookMutation.isPending}
+              onClick={handleRegisterTelegramWebhook}
+              disabled={!telegramIntegration?.configured}
+            >
+              Ativar Webhook
+            </Button>
+            <Button
+              variant="ghost"
+              isLoading={configureTelegramWebhookMutation.isPending}
+              onClick={handleDeleteTelegramWebhook}
+              disabled={!telegramIntegration?.configured}
+            >
+              Remover Webhook
+            </Button>
+            <Button
+              variant="ghost"
+              isLoading={saveTelegramConfigMutation.isPending}
+              onClick={handleClearTelegramConfig}
+              disabled={!telegramIntegration?.configured}
+            >
+              Limpar Bot
+            </Button>
+          </div>
 
-          <div className="space-y-sm">
-            <p className="text-body-sm font-medium text-dark-100">Como ativar</p>
-            <div className="space-y-sm text-body-sm text-dark-300">
-              <p>1. Crie o bot no BotFather e pegue o token.</p>
-              <p>2. Configure TELEGRAM_BOT_TOKEN no backend do sistema.</p>
-              <p>3. Registre o webhook do bot usando a URL exibida acima.</p>
-              <p>4. Se quiser, envie tambem o secret_token igual ao TELEGRAM_WEBHOOK_SECRET.</p>
+          {telegramIntegration?.configured && (
+            <Alert
+              type={telegramIntegration.webhookRegistered ? 'success' : 'warning'}
+              title={telegramIntegration.webhookRegistered ? 'Telegram ativo no FlowDesk' : 'Bot salvo, falta ativar o webhook'}
+              message={
+                telegramIntegration.webhookRegistered
+                  ? `O webhook atual aponta para ${telegramIntegration.webhookConfiguredUrl || telegramIntegration.webhookTargetUrl}.`
+                  : 'Clique em "Ativar Webhook" para o FlowDesk registrar automaticamente o webhook do bot no Telegram.'
+              }
+            />
+          )}
+
+          {telegramIntegration?.lastError && (
+            <Alert
+              type="error"
+              title="Ultimo erro do Telegram"
+              message={telegramIntegration.lastError}
+            />
+          )}
+
+          {telegramIntegration?.webhookInfo?.last_error_message && (
+            <Alert
+              type="warning"
+              title="Erro reportado pelo Telegram"
+              message={telegramIntegration.webhookInfo.last_error_message}
+            />
+          )}
+
+          <div className="grid gap-md md:grid-cols-3">
+            <div className="p-md rounded-md bg-dark-700/50">
+              <p className="text-body-sm text-dark-400">Bot atual</p>
+              <p className="text-body-md font-medium text-dark-100 mt-xs">
+                {telegramIntegration?.botUsername ? `@${telegramIntegration.botUsername}` : 'Nao identificado'}
+              </p>
+            </div>
+            <div className="p-md rounded-md bg-dark-700/50">
+              <p className="text-body-sm text-dark-400">Mensagens pendentes</p>
+              <p className="text-body-md font-medium text-dark-100 mt-xs">
+                {telegramIntegration?.webhookInfo?.pending_update_count ?? 0}
+              </p>
+            </div>
+            <div className="p-md rounded-md bg-dark-700/50">
+              <p className="text-body-sm text-dark-400">Secret configurado</p>
+              <p className="text-body-md font-medium text-dark-100 mt-xs">
+                {telegramIntegration?.webhookSecretConfigured ? 'Sim' : 'Nao'}
+              </p>
             </div>
           </div>
         </CardBody>
@@ -459,30 +580,6 @@ export default function ConnectPage() {
           </CardBody>
         </Card>
       )}
-
-      <Card elevated className="p-lg">
-        <CardHeader title="Passos para Conectar" subtitle="Siga estas instrucoes para conectar sua conta" />
-        <CardBody className="mt-md space-y-md">
-          <div className="space-y-md">
-            {[
-              { label: 'Clique em "Conectar WhatsApp"', desc: 'Aguarde o QR code aparecer na tela' },
-              { label: 'Abra o WhatsApp no seu celular', desc: 'Acesse Menu (...) > Aparelhos conectados > Conectar aparelho' },
-              { label: 'Escaneie o QR Code', desc: 'Aponte a camera do WhatsApp para o codigo exibido' },
-              { label: 'Pronto!', desc: 'Aguarde alguns segundos e o status atualizara automaticamente' },
-            ].map((step, i) => (
-              <div key={i} className="flex gap-md">
-                <div className="flex-shrink-0 w-8 h-8 bg-brand-500/20 rounded-full flex items-center justify-center">
-                  <span className="text-brand-400 font-semibold text-sm">{i + 1}</span>
-                </div>
-                <div>
-                  <h4 className="text-body-md font-medium text-dark-100">{step.label}</h4>
-                  <p className="text-body-sm text-dark-400 mt-xs">{step.desc}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </CardBody>
-      </Card>
 
       <ConfirmDialog
         isOpen={showDisconnectConfirm}
