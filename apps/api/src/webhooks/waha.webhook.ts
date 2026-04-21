@@ -294,7 +294,9 @@ export async function wahaWebhookHandler(req: Request, res: Response): Promise<v
           console.warn(`[webhook] send attempt ${attempt} failed:`, details);
 
           const isDetachedFrame = detailsText.includes('detached Frame');
-          if (attempt < 3 && (isDetachedFrame || sendErr?.response?.status >= 500)) {
+          const isTimeout = detailsText.toLowerCase().includes('timeout') || sendErr?.code === 'ECONNABORTED';
+          const isServerError = typeof sendErr?.response?.status === 'number' && sendErr.response.status >= 500;
+          if (attempt < 3 && (isDetachedFrame || isTimeout || isServerError)) {
             await sleep(700 * attempt);
             continue;
           }
