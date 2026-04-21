@@ -109,7 +109,7 @@ export class WahaService {
    * WARNING: If session is NOT stopped, WAHA will stop and restart it.
    */
   async updateSessionConfig(sessionName: string, webhookUrl: string): Promise<void> {
-    await this.client.post(`/sessions/${sessionName}`, {
+    await this.client.put(`/sessions/${sessionName}`, {
       name: sessionName,
       config: {
         webhooks: [{ url: webhookUrl, events: ['message', 'session.status'] }],
@@ -131,13 +131,13 @@ export class WahaService {
 
   async getQrCode(sessionName: string): Promise<{ qr: { code: string; expiresAt: string } | null }> {
     try {
-      // Accept: application/json returns { mimetype: "image/png", data: "base64string" }
-      // Without this header WAHA returns a binary PNG stream which axios can't parse as JSON
+      // ?format=image + Accept: application/json → { mimetype: "image/png", data: "base64string" }
+      // Without ?format=image WAHA returns binary PNG regardless of Accept header
       const { data } = await this.client.get(`/${sessionName}/auth/qr`, {
+        params: { format: 'image' },
         headers: { Accept: 'application/json' },
       });
       if (data?.data) {
-        // Build proper data URL for use in <img src=...>
         const mime = data.mimetype || 'image/png';
         const dataUrl = data.data.startsWith('data:') ? data.data : `data:${mime};base64,${data.data}`;
         return { qr: { code: dataUrl, expiresAt: '' } };

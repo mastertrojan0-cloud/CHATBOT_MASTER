@@ -97,6 +97,16 @@ export default function ConnectPage() {
     };
   }, []);
 
+  function extractErrorMessage(error: any, fallback: string): string {
+    const data = error?.response?.data;
+    if (!data) return error?.message || fallback;
+    // API may return { error: string } or { error: { message: string } }
+    const err = data.error;
+    if (typeof err === 'string') return err;
+    if (err && typeof err === 'object') return err.message || fallback;
+    return fallback;
+  }
+
   const handleConnect = async () => {
     setIsConnecting(true);
     setActionError(null);
@@ -105,8 +115,7 @@ export default function ConnectPage() {
       startFastPoll();
       await refetchSession();
     } catch (error: any) {
-      const message = error?.response?.data?.error || 'Falha ao iniciar conexão com WhatsApp';
-      setActionError(message);
+      setActionError(extractErrorMessage(error, 'Falha ao iniciar conexão com WhatsApp'));
     } finally {
       setIsConnecting(false);
     }
@@ -116,12 +125,20 @@ export default function ConnectPage() {
     setIsReconnecting(true);
     setActionError(null);
     try {
-      await api.post('/sessions/reconnect');
+      // Try /reconnect first; fall back to /connect if route not yet deployed
+      try {
+        await api.post('/sessions/reconnect');
+      } catch (e: any) {
+        if (e?.response?.status === 404) {
+          await api.post('/sessions/connect');
+        } else {
+          throw e;
+        }
+      }
       startFastPoll();
       await refetchSession();
     } catch (error: any) {
-      const message = error?.response?.data?.error || 'Falha ao reconectar';
-      setActionError(message);
+      setActionError(extractErrorMessage(error, 'Falha ao reconectar'));
     } finally {
       setIsReconnecting(false);
     }

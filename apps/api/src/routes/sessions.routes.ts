@@ -43,22 +43,9 @@ function getRequestBaseUrl(req: AuthRequest): string | undefined {
 }
 
 async function getSessionName(req: AuthRequest): Promise<string> {
-  const tenantId = req.tenantId;
-
-  if (!tenantId) {
-    return WAHA_SESSION_NAME;
-  }
-
-  const tenant = await prisma.tenant.findUnique({
-    where: { id: tenantId },
-    select: { wahaSessionName: true },
-  });
-
-  if (tenant?.wahaSessionName) {
-    return tenant.wahaSessionName;
-  }
-
-  return `tenant-${tenantId}`;
+  // WAHA Core only supports a single session named "default".
+  // Multi-session (tenant-scoped names) requires WAHA Plus.
+  return WAHA_SESSION_NAME;
 }
 
 function getWebhookBaseUrl(req: AuthRequest): string {
@@ -295,7 +282,9 @@ router.get(
 
 /**
  * POST /api/sessions/reconnect
- * Force restart - uses WAHA's native /restart endpoint (stop + start)
+ * Force reconnect with fresh webhook config.
+ * Uses PUT which stops+restarts automatically if session is not STOPPED.
+ * If session doesn't exist, creates it.
  */
 router.post(
   '/reconnect',
@@ -305,29 +294,28 @@ router.post(
     try {
       const sessionName = await getSessionName(req);
       const webhookUrl = getWebhookUrl(req, sessionName);
-      console.log(`[sessions/reconnect] restarting "${sessionName}"`);
-      console.log(`[sessions/reconnect] webhook="${webhookUrl}"`);
+      console.log(`[sessions/reconnect] "${sessionName}" webhook="${webhookUrl}"`);
 
-      try {
-        await wahaService.updateSessionConfig(sessionName, webhookUrl);
-      } catch (e: any) {
-        console.log('[sessions/reconnect] updateConfig:', e.response?.data || e.message);
-      }
-
-      try {
-        await wahaService.restartSession(sessionName);
-      } catch (e: any) {
-        console.log('[sessions/reconnect]', e.response?.data || e.message);
-        try {
-          await wahaService.stopSession(sessionName);
-        } catch {}
-        try {
-          await wahaService.startSession(sessionName);
-        } catch {}
-      }
-      await prisma.tenant.update({ where: { id: req.tenantId }, data: { wahaSessionName: sessionName } });
       const { session } = await wahaService.getSession(sessionName);
-      res.json({ success: true, data: { sessionName, status: session?.status || 'STARTING' } });
+
+      if (session) {
+        // PUT stops+restarts the session automatically regardless of current state
+        try {
+          await wahaService.updateSessionConfig(sessionName, webhookUrl);
+        } catch (e: any) {
+          console.log('[sessions/reconnect] updateConfig error:', e.response?.data || e.message);
+          // If PUT fails, try explicit stop+start
+          try { await wahaService.stopSession(sessionName); } catch {}
+          await wahaService.startSession(sessionName);
+        }
+      } else {
+        // Session doesn't exist — create it (auto-starts with webhook)
+        await wahaService.createSession(sessionName, webhookUrl);
+      }
+
+      await prisma.tenant.update({ where: { id: req.tenantId }, data: { wahaSessionName: sessionName } });
+      const { session: updatedSession } = await wahaService.getSession(sessionName);
+      res.json({ success: true, data: { sessionName, status: updatedSession?.status || 'STARTING' } });
     } catch (error: any) {
       console.error('[sessions/reconnect]', error?.response?.data || error.message);
       res.status(500).json({ success: false, error: 'Falha ao reconectar' });

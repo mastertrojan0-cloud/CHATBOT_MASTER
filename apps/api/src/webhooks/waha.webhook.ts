@@ -77,41 +77,60 @@ export async function wahaWebhookHandler(req: Request, res: Response): Promise<v
 
   res.status(200).json({ received: true });
 
+  console.log(`[webhook] received event="${body.event}" session="${sessionName}"`);
+
   try {
     if (!['message', 'message.any'].includes(body.event)) {
+      console.log(`[webhook] skipping event="${body.event}"`);
       return;
     }
 
     const payload = body.payload;
     const messageText = getMessageText(payload);
 
+    console.log(`[webhook] from="${payload.from}" fromMe=${payload.fromMe} text="${messageText}"`);
+
     if (!isInboundTextMessage(payload)) {
+      console.log(`[webhook] skipping: not inbound text (fromMe=${payload.fromMe} text="${messageText}")`);
       return;
     }
 
     if (payload.from.endsWith('@g.us') || payload.from.endsWith('@broadcast')) {
+      console.log(`[webhook] skipping: group/broadcast message from="${payload.from}"`);
       return;
     }
 
     const tenant = await prisma.tenant.findFirst({
       where: { wahaSessionName: sessionName },
+    }) ?? await prisma.tenant.findFirst({
+      // Fallback: WAHA Core always uses "default" session.
+      // If DB has an old tenant-scoped name stored, still find the active tenant.
+      where: { isActive: true },
+      orderBy: { createdAt: 'asc' },
     });
 
-    if (!tenant || !tenant.isActive) {
+    if (!tenant) {
+      console.error(`[webhook] NO TENANT FOUND for session="${sessionName}" — run Connect to register webhook`);
       return;
     }
+    if (!tenant.isActive) {
+      console.warn(`[webhook] tenant="${tenant.id}" isActive=false — skipping`);
+      return;
+    }
+
+    console.log(`[webhook] tenant="${tenant.id}" plan="${tenant.plan}" segment="${tenant.businessSegment}"`);
 
     const usage = (tenant.currentMonthUsage as Record<string, number>) || {};
     const messageCount = usage.messageCount || 0;
 
     if (tenant.plan === 'FREE' && messageCount >= 200) {
+      console.warn(`[webhook] tenant="${tenant.id}" FREE limit reached (${messageCount})`);
       const ownerUser = await prisma.tenantUser.findFirst({
         where: { tenantId: tenant.id, role: 'OWNER' },
         select: { fullName: true },
       });
-
       await wahaService.sendMessage(
-        sessionName,
+        'default',
         extractPhoneNumber(payload.from),
         `Ola! ${ownerUser?.fullName || 'voce'} atingiu o limite de mensagens do plano Free. Faça upgrade para o Pro para continuar.`
       );
@@ -164,6 +183,9 @@ export async function wahaWebhookHandler(req: Request, res: Response): Promise<v
       flow
     );
     const responseText = engineResult.responses.map((item) => item.text).join('\n\n').trim();
+
+    console.log(`[webhook] engine responses=${engineResult.responses.length} responseText="${responseText.slice(0, 80)}"`);
+
     const conversationKey = getConversationKey(sessionName, payload.from);
 
     const conversation = existingConversation
@@ -228,19 +250,20 @@ export async function wahaWebhookHandler(req: Request, res: Response): Promise<v
       };
 
       if (existingLead) {
-        await prisma.lead.update({
-          where: { id: existingLead.id },
-          data: leadData,
-        });
+        await prisma.lead.update({ where: { id: existingLead.id }, data: leadData });
       } else {
-        await prisma.lead.create({
-          data: leadData,
-        });
+        await prisma.lead.create({ data: leadData });
       }
     }
 
     if (responseText) {
-      await wahaService.sendMessage(sessionName, phone, responseText);
+      console.log(`[webhook] sending response to phone="${phone}"`);
+      try {
+        await wahaService.sendMessage('default', phone, responseText);
+        console.log(`[webhook] response sent OK`);
+      } catch (sendErr: any) {
+        console.error(`[webhook] sendMessage FAILED:`, sendErr?.response?.data || sendErr.message);
+      }
 
       await prisma.message.create({
         data: {
@@ -255,10 +278,10 @@ export async function wahaWebhookHandler(req: Request, res: Response): Promise<v
 
       await prisma.contact.update({
         where: { id: contact.id },
-        data: {
-          lastOutboundAt: new Date(),
-        },
+        data: { lastOutboundAt: new Date() },
       });
+    } else {
+      console.warn(`[webhook] engine produced no response for text="${messageText}"`);
     }
 
     await prisma.tenant.update({
@@ -272,5 +295,7 @@ export async function wahaWebhookHandler(req: Request, res: Response): Promise<v
     });
   } catch (error) {
     logger.error({ error, body }, 'WAHA webhook error');
+    console.error('[webhook] UNHANDLED ERROR:', error);
   }
 }
+
