@@ -85,6 +85,7 @@ POST   /api/tenants/me/cancel-subscription # Cancelar subscription
 ```
 POST   /api/webhooks/stripe       # Stripe events
 POST   /api/webhooks/waha         # WhatsApp events
+POST   /api/webhooks/telegram/:tenantSlug # Telegram bot events
 ```
 
 ## 🔐 Autenticação
@@ -135,7 +136,24 @@ STRIPE_PRO_MONTHLY_PRICE_ID=price_xxx
 STRIPE_PRO_YEARLY_PRICE_ID=price_yyy
 
 WAHA_API_URL=http://waha-api:3000
+TELEGRAM_BOT_TOKEN=123456:ABCDEF
 ```
+
+### Telegram
+
+O bot do Telegram usa o mesmo motor de fluxo do WhatsApp e resolve o tenant pela `slug`:
+
+```text
+POST /api/webhooks/telegram/:tenantSlug
+```
+
+Para registrar o webhook no BotFather/Telegram API, a URL deve apontar para:
+
+```text
+https://seu-dominio/api/webhooks/telegram/<tenant-slug>
+```
+
+Se quiser validar origem, configure `TELEGRAM_WEBHOOK_SECRET` e envie o mesmo valor ao criar o webhook com `secret_token`.
 
 ## 📋 Implementação
 

@@ -1,12 +1,11 @@
-﻿import React, { useEffect, useRef, useState } from 'react';
-import { Smartphone, CheckCircle, AlertCircle, Loader, RefreshCw } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Smartphone, CheckCircle, AlertCircle, Loader, RefreshCw, Send, Copy } from 'lucide-react';
 import QRCode from 'qrcode.react';
-import { Card, CardHeader, CardBody, Alert, Badge, Button } from '@/components';
-import { useWAHASession, useWAHAQR } from '@/hooks/queries';
+import { Card, CardHeader, CardBody, Alert, Badge, Button, ConfirmDialog } from '@/components';
+import { useWAHASession, useWAHAQR, useTelegramHealth, useTenant } from '@/hooks/queries';
 import api from '@/config/api';
 import { useQueryClient } from '@tanstack/react-query';
 
-// Real WAHA statuses: STOPPED | STARTING | SCAN_QR_CODE | WORKING | FAILED
 const INACTIVE_STATUSES = ['STOPPED', 'FAILED', ''];
 const SCANNING_STATUS = 'SCAN_QR_CODE';
 const CONNECTED_STATUSES = ['WORKING'];
@@ -27,7 +26,12 @@ export default function ConnectPage() {
   const queryClient = useQueryClient();
   const [isConnecting, setIsConnecting] = useState(false);
   const [isReconnecting, setIsReconnecting] = useState(false);
+  const [isDisconnecting, setIsDisconnecting] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
+  const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [telegramCopyFeedback, setTelegramCopyFeedback] = useState<string | null>(null);
   const fastPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [stuckTimer, setStuckTimer] = useState(0);
 
@@ -36,6 +40,9 @@ export default function ConnectPage() {
     isError: sessionError,
     refetch: refetchSession,
   } = useWAHASession();
+  const { data: qrImageData } = useWAHAQR(sessionData?.status === SCANNING_STATUS);
+  const { data: tenantData } = useTenant();
+  const { data: telegramHealth, isError: telegramHealthError } = useTelegramHealth();
 
   const sessionStatus = sessionData?.status || '';
   const isScanning = sessionStatus === SCANNING_STATUS;
@@ -44,9 +51,21 @@ export default function ConnectPage() {
   const canConnect = INACTIVE_STATUSES.includes(sessionStatus);
   const isStuck = STUCK_STATUSES.includes(sessionStatus) && stuckTimer > 20;
 
-  const { data: qrImageData } = useWAHAQR(isScanning);
   const qrImage = qrImageData?.kind === 'image' ? qrImageData.value : null;
   const qrText = qrImageData?.kind === 'text' ? qrImageData.value : null;
+  const tenantInfo = (tenantData as any)?.data || tenantData || {};
+  const tenantSlug = typeof tenantInfo?.slug === 'string' ? tenantInfo.slug : '';
+
+  const telegramWebhookUrl = useMemo(() => {
+    if (!tenantSlug) return '';
+
+    const apiBase = (import.meta.env.VITE_API_URL as string | undefined) || '/api';
+    const normalizedBase = apiBase.startsWith('http')
+      ? apiBase.replace(/\/+$/, '')
+      : `${window.location.origin}${apiBase.startsWith('/') ? apiBase : `/${apiBase}`}`.replace(/\/+$/, '');
+
+    return `${normalizedBase}/webhooks/telegram/${tenantSlug}`;
+  }, [tenantSlug]);
 
   useEffect(() => {
     return () => {
@@ -56,9 +75,6 @@ export default function ConnectPage() {
     };
   }, [qrImage]);
 
-  // Fast-poll for 15 seconds after initiating connect to catch quick transitions
-  // Fast-poll: every 500ms. Duration: 180 iterations = 90 seconds
-  // This covers the entire QR validity window (60s first QR + 6x20s subsequent)
   const startFastPoll = () => {
     if (fastPollRef.current) clearInterval(fastPollRef.current);
     let count = 0;
@@ -72,8 +88,6 @@ export default function ConnectPage() {
     }, 500);
   };
 
-  // Auto-start fast-poll as soon as QR is displayed (status = SCAN_QR_CODE)
-  // This ensures we catch WORKING immediately after the user scans
   useEffect(() => {
     if (sessionStatus === SCANNING_STATUS && !fastPollRef.current) {
       startFastPoll();
@@ -91,14 +105,13 @@ export default function ConnectPage() {
     }
   }, [queryClient, sessionStatus]);
 
-  // Track how long we've been in a transitional state
   useEffect(() => {
     if (STUCK_STATUSES.includes(sessionStatus)) {
-      const t = setInterval(() => setStuckTimer(n => n + 1), 1000);
-      return () => clearInterval(t);
-    } else {
-      setStuckTimer(0);
+      const timer = setInterval(() => setStuckTimer((n) => n + 1), 1000);
+      return () => clearInterval(timer);
     }
+
+    setStuckTimer(0);
   }, [sessionStatus]);
 
   useEffect(() => {
@@ -107,10 +120,16 @@ export default function ConnectPage() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!telegramCopyFeedback) return;
+
+    const timer = setTimeout(() => setTelegramCopyFeedback(null), 2000);
+    return () => clearTimeout(timer);
+  }, [telegramCopyFeedback]);
+
   function extractErrorMessage(error: any, fallback: string): string {
     const data = error?.response?.data;
     if (!data) return error?.message || fallback;
-    // API may return { error: string } or { error: { message: string } }
     const err = data.error;
     if (typeof err === 'string') return err;
     if (err && typeof err === 'object') return err.message || fallback;
@@ -135,7 +154,6 @@ export default function ConnectPage() {
     setIsReconnecting(true);
     setActionError(null);
     try {
-      // Try /reconnect first; fall back to /connect if route not yet deployed
       try {
         await api.post('/sessions/reconnect');
       } catch (e: any) {
@@ -154,10 +172,53 @@ export default function ConnectPage() {
     }
   };
 
+  const handleDisconnect = async () => {
+    setIsDisconnecting(true);
+    setActionError(null);
+    try {
+      await api.post('/sessions/disconnect');
+      queryClient.invalidateQueries({ queryKey: ['waha', 'session'] });
+      queryClient.invalidateQueries({ queryKey: ['waha', 'qr'] });
+      await refetchSession();
+    } catch (error: any) {
+      setActionError(extractErrorMessage(error, 'Falha ao desconectar WhatsApp'));
+    } finally {
+      setIsDisconnecting(false);
+    }
+  };
+
+  const handleReset = async () => {
+    setIsResetting(true);
+    setActionError(null);
+    try {
+      await api.post('/whatsapp/reset');
+      startFastPoll();
+      queryClient.invalidateQueries({ queryKey: ['waha', 'session'] });
+      queryClient.invalidateQueries({ queryKey: ['waha', 'qr'] });
+      await refetchSession();
+    } catch (error: any) {
+      setActionError(extractErrorMessage(error, 'Falha ao resetar conexão WhatsApp'));
+    } finally {
+      setIsResetting(false);
+    }
+  };
+
   const handleRefresh = () => {
     setActionError(null);
     queryClient.invalidateQueries({ queryKey: ['waha', 'session'] });
     queryClient.invalidateQueries({ queryKey: ['waha', 'qr'] });
+    queryClient.invalidateQueries({ queryKey: ['telegram', 'health'] });
+  };
+
+  const handleCopyTelegramWebhook = async () => {
+    if (!telegramWebhookUrl) return;
+
+    try {
+      await navigator.clipboard.writeText(telegramWebhookUrl);
+      setTelegramCopyFeedback('Webhook copiado');
+    } catch {
+      setTelegramCopyFeedback('Nao foi possivel copiar');
+    }
   };
 
   const getStatusBadge = () => {
@@ -203,20 +264,18 @@ export default function ConnectPage() {
 
   return (
     <div className="p-lg space-y-lg max-w-2xl">
-      {/* Header */}
       <div>
         <h1 className="text-display-md font-display font-bold text-dark-100 flex items-center gap-md">
           <Smartphone className="w-8 h-8 text-brand-500" />
-          Conectar WhatsApp
+          Conectar Canais
         </h1>
         <p className="text-body-md text-dark-400 mt-xs">
-          Conecte sua conta do WhatsApp para começar a gerenciar leads
+          Conecte seus canais para começar a gerenciar leads no sistema
         </p>
       </div>
 
-      {/* Status Card */}
       <Card elevated className="p-lg">
-        <CardHeader title="Status da Conexão" />
+        <CardHeader title="Status do WhatsApp" />
         <CardBody className="mt-md space-y-md">
           <div className="flex items-center justify-between">
             <span className="text-body-md text-dark-300">
@@ -236,12 +295,28 @@ export default function ConnectPage() {
 
           {(canConnect || sessionError) && (
             <div className="pt-sm">
-              <Button
-                variant="primary"
-                isLoading={isConnecting}
-                onClick={handleConnect}
-              >
+              <Button variant="primary" isLoading={isConnecting} onClick={handleConnect}>
                 Conectar WhatsApp
+              </Button>
+            </div>
+          )}
+
+          {!sessionError && (
+            <div className="pt-sm flex flex-wrap items-center gap-sm">
+              {!canConnect && (
+                <Button
+                  variant="outline"
+                  isLoading={isDisconnecting}
+                  onClick={() => setShowDisconnectConfirm(true)}
+                >
+                  Desconectar
+                </Button>
+              )}
+              <Button variant="secondary" isLoading={isReconnecting} onClick={handleReconnect}>
+                Reconectar
+              </Button>
+              <Button variant="ghost" isLoading={isResetting} onClick={() => setShowResetConfirm(true)}>
+                Resetar Conexao
               </Button>
             </div>
           )}
@@ -249,15 +324,10 @@ export default function ConnectPage() {
           {isStuck && (
             <div className="pt-sm flex items-center gap-md">
               <span className="text-body-sm text-dark-400">
-                Parece que está demorando... Já escaneou o QR?
+                Parece que esta demorando... Ja escaneou o QR?
               </span>
-              <Button
-                variant="secondary"
-                size="sm"
-                isLoading={isReconnecting}
-                onClick={handleReconnect}
-              >
-                Forçar Reconexão
+              <Button variant="secondary" size="sm" isLoading={isReconnecting} onClick={handleReconnect}>
+                Forcar Reconexao
               </Button>
             </div>
           )}
@@ -266,34 +336,104 @@ export default function ConnectPage() {
             <Alert
               type="success"
               title="Conectado!"
-              message="Sua conta do WhatsApp está ativa. Mensagens recebidas serão processadas automaticamente."
+              message="Sua conta do WhatsApp esta ativa. Mensagens recebidas serao processadas automaticamente."
             />
           )}
 
-          {actionError && (
-            <Alert
-              type="error"
-              title="Erro ao conectar"
-              message={actionError}
-            />
-          )}
+          {actionError && <Alert type="error" title="Erro ao conectar" message={actionError} />}
 
           {sessionError && (
             <Alert
               type="warning"
-              title="WhatsApp indisponível"
-              message="Não foi possível verificar o status do WhatsApp. Verifique se o serviço está em execução."
+              title="WhatsApp indisponivel"
+              message="Nao foi possivel verificar o status do WhatsApp. Verifique se o servico esta em execucao."
             />
           )}
         </CardBody>
       </Card>
 
-      {/* QR Code Card */}
+      <Card elevated className="p-lg">
+        <CardHeader
+          title="Canal Telegram"
+          subtitle="Ative um bot do Telegram usando o mesmo fluxo de atendimento do sistema"
+        />
+        <CardBody className="mt-md space-y-md">
+          <div className="flex items-center justify-between gap-md">
+            <div>
+              <h3 className="text-body-md font-medium text-dark-100 flex items-center gap-sm">
+                <Send className="w-4 h-4 text-brand-500" />
+                Status do bot
+              </h3>
+              <p className="text-body-sm text-dark-400 mt-xs">
+                {telegramHealthError
+                  ? 'Nao foi possivel verificar o Telegram agora.'
+                  : telegramHealth?.configured
+                    ? 'Token do bot detectado no backend.'
+                    : 'Configure o token do bot para habilitar o canal Telegram.'}
+              </p>
+            </div>
+            <Badge variant={telegramHealth?.configured ? 'success' : 'warning'}>
+              {telegramHealth?.configured ? 'Configurado' : 'Pendente'}
+            </Badge>
+          </div>
+
+          <div className="grid gap-md md:grid-cols-2">
+            <div className="p-md rounded-md bg-dark-700/50">
+              <p className="text-body-sm text-dark-400">Tenant slug</p>
+              <p className="text-body-md font-medium text-dark-100 mt-xs">
+                {tenantSlug || 'Slug ainda nao disponivel'}
+              </p>
+            </div>
+
+            <div className="p-md rounded-md bg-dark-700/50">
+              <p className="text-body-sm text-dark-400">Webhook do sistema</p>
+              <div className="mt-xs flex items-start gap-sm">
+                <p className="text-body-sm text-dark-100 break-all flex-1">
+                  {telegramWebhookUrl || 'A URL aparece aqui quando o tenant tiver slug'}
+                </p>
+                <button
+                  type="button"
+                  onClick={handleCopyTelegramWebhook}
+                  disabled={!telegramWebhookUrl}
+                  className="p-1 text-dark-400 hover:text-brand-500 disabled:opacity-40"
+                  title="Copiar webhook"
+                >
+                  <Copy className="w-4 h-4" />
+                </button>
+              </div>
+              {telegramCopyFeedback && (
+                <p className="text-xs text-brand-400 mt-xs">{telegramCopyFeedback}</p>
+              )}
+            </div>
+          </div>
+
+          <Alert
+            type={telegramHealth?.configured ? 'success' : 'warning'}
+            title={telegramHealth?.configured ? 'Backend pronto para Telegram' : 'Falta configurar o bot'}
+            message={
+              telegramHealth?.configured
+                ? 'Crie ou atualize o webhook do seu bot apontando para a URL acima. O sistema vai receber a mensagem, rodar o fluxo e responder pelo Telegram.'
+                : 'Defina TELEGRAM_BOT_TOKEN no backend e depois registre o webhook do bot para esta URL.'
+            }
+          />
+
+          <div className="space-y-sm">
+            <p className="text-body-sm font-medium text-dark-100">Como ativar</p>
+            <div className="space-y-sm text-body-sm text-dark-300">
+              <p>1. Crie o bot no BotFather e pegue o token.</p>
+              <p>2. Configure TELEGRAM_BOT_TOKEN no backend do sistema.</p>
+              <p>3. Registre o webhook do bot usando a URL exibida acima.</p>
+              <p>4. Se quiser, envie tambem o secret_token igual ao TELEGRAM_WEBHOOK_SECRET.</p>
+            </div>
+          </div>
+        </CardBody>
+      </Card>
+
       {isScanning && (
         <Card elevated className="p-lg">
           <CardHeader
             title="Escaneie o QR Code"
-            subtitle="Abra o WhatsApp → Menu (⋮) → Aparelhos conectados → Conectar aparelho"
+            subtitle="Abra o WhatsApp > Menu (...) > Aparelhos conectados > Conectar aparelho"
           />
           <CardBody className="mt-md flex justify-center py-lg">
             {qrImage ? (
@@ -320,19 +460,15 @@ export default function ConnectPage() {
         </Card>
       )}
 
-      {/* Steps Card */}
       <Card elevated className="p-lg">
-        <CardHeader
-          title="Passos para Conectar"
-          subtitle="Siga estas instruções para conectar sua conta"
-        />
+        <CardHeader title="Passos para Conectar" subtitle="Siga estas instrucoes para conectar sua conta" />
         <CardBody className="mt-md space-y-md">
           <div className="space-y-md">
             {[
               { label: 'Clique em "Conectar WhatsApp"', desc: 'Aguarde o QR code aparecer na tela' },
-              { label: 'Abra o WhatsApp no seu celular', desc: 'Acesse Menu (⋮) → Aparelhos conectados → Conectar aparelho' },
-              { label: 'Escaneie o QR Code', desc: 'Aponte a câmera do WhatsApp para o código exibido' },
-              { label: 'Pronto!', desc: 'Aguarde alguns segundos — o status atualizará automaticamente' },
+              { label: 'Abra o WhatsApp no seu celular', desc: 'Acesse Menu (...) > Aparelhos conectados > Conectar aparelho' },
+              { label: 'Escaneie o QR Code', desc: 'Aponte a camera do WhatsApp para o codigo exibido' },
+              { label: 'Pronto!', desc: 'Aguarde alguns segundos e o status atualizara automaticamente' },
             ].map((step, i) => (
               <div key={i} className="flex gap-md">
                 <div className="flex-shrink-0 w-8 h-8 bg-brand-500/20 rounded-full flex items-center justify-center">
@@ -347,6 +483,36 @@ export default function ConnectPage() {
           </div>
         </CardBody>
       </Card>
+
+      <ConfirmDialog
+        isOpen={showDisconnectConfirm}
+        title="Desconectar WhatsApp?"
+        description="A sessao WhatsApp sera parada e o vinculo atual sera limpo. Leads, mensagens, metricas, usuarios e plano nao serao apagados."
+        confirmText="Desconectar"
+        cancelText="Cancelar"
+        isDangerous
+        isLoading={isDisconnecting}
+        onCancel={() => setShowDisconnectConfirm(false)}
+        onConfirm={async () => {
+          setShowDisconnectConfirm(false);
+          await handleDisconnect();
+        }}
+      />
+
+      <ConfirmDialog
+        isOpen={showResetConfirm}
+        title="Resetar conexao WhatsApp?"
+        description="A sessao atual sera encerrada, o vinculo sera limpo e uma nova sessao exclusiva sera criada. Um novo QR Code sera exigido. Nenhum dado de negocio sera removido."
+        confirmText="Resetar e gerar novo QR"
+        cancelText="Cancelar"
+        isDangerous
+        isLoading={isResetting}
+        onCancel={() => setShowResetConfirm(false)}
+        onConfirm={async () => {
+          setShowResetConfirm(false);
+          await handleReset();
+        }}
+      />
     </div>
   );
 }

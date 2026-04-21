@@ -61,10 +61,10 @@ export function useWAHASession() {
     },
     retry: 1,
     retryDelay: 1000,
-    staleTime: 0,
+    staleTime: 3000,
     refetchOnWindowFocus: true,
-    refetchInterval: 1000,
-    refetchIntervalInBackground: true,
+    refetchInterval: 5000,
+    refetchIntervalInBackground: false,
   });
 }
 
@@ -140,5 +140,24 @@ export function useGoogleSheetsConfig(enabled: boolean = true) {
     queryKey: ['integrations', 'google-sheets'],
     queryFn: () => api.get('/tenants/me/google-sheets'),
     enabled,
+  });
+}
+
+export function useTelegramHealth(enabled: boolean = true) {
+  return useQuery({
+    queryKey: ['telegram', 'health'],
+    queryFn: async () => {
+      const result = await api.get('/health/telegram');
+      const payload = (result?.data ?? result) as any;
+
+      return {
+        configured: Boolean(payload?.configured),
+        dbConnected: Boolean(payload?.dbConnected),
+        timestamp: payload?.timestamp || null,
+      };
+    },
+    enabled,
+    staleTime: 1000 * 30,
+    refetchInterval: 1000 * 30,
   });
 }

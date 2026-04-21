@@ -19,8 +19,10 @@ import { connectDb } from '@flowdesk/db';
 import { weeklyReportJob } from './jobs/weekly-report.job';
 import { stripeWebhookHandler } from './webhooks/stripe.webhook';
 import { wahaWebhookHandler } from './webhooks/waha.webhook';
+import { telegramWebhookHandler } from './webhooks/telegram.webhook';
 import { logger } from './lib/logger';
 import { wahaService } from './services/waha.service';
+import { telegramService } from './services/telegram.service';
 import './config/env';
 
 const app: Express = express();
@@ -128,8 +130,21 @@ app.get('/api/health/waha', async (_req: Request, res: Response) => {
   }
 });
 
+app.get('/api/health/telegram', (_req: Request, res: Response) => {
+  res.json({
+    success: true,
+    data: {
+      configured: telegramService.hasBotToken(),
+      dbConnected,
+      dbError,
+      timestamp: new Date().toISOString(),
+    },
+  });
+});
+
 app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), stripeWebhookHandler);
 app.post('/api/webhooks/waha/:sessionName', express.json(), wahaWebhookHandler);
+app.post('/api/webhooks/telegram/:tenantSlug', express.json(), telegramWebhookHandler);
 app.use('/api/auth', authRoutes);
 
 app.use('/api/', authMiddleware);
@@ -139,6 +154,12 @@ app.post('/api/auth/logout', (_req: Request, res: Response) => {
     success: true,
     message: 'Logged out successfully',
   });
+});
+
+// Alias endpoint required by dashboard action.
+app.post('/api/whatsapp/reset', (req: Request, res: Response, next: NextFunction) => {
+  req.url = '/reset';
+  (sessionsRoutes as any).handle(req, res, next);
 });
 
 app.use('/api/leads', leadsRoutes);
