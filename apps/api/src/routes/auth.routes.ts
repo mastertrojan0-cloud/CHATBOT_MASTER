@@ -62,14 +62,27 @@ router.post(
   async (req: Request, res: Response) => {
     try {
       const { email, password } = req.body;
+      const normalizedEmail = String(email).trim().toLowerCase();
 
       const { data, error } = await supabase.auth.signInWithPassword({
-        email,
+        email: normalizedEmail,
         password,
       });
 
       if (error || !data.session) {
-        sendError(res, 'Invalid email or password', 'INVALID_CREDENTIALS', 401);
+        const message = (error?.message || '').toLowerCase();
+
+        if (message.includes('email not confirmed')) {
+          sendError(res, 'Confirme seu email antes de entrar', 'EMAIL_NOT_CONFIRMED', 403);
+          return;
+        }
+
+        if (message.includes('too many requests')) {
+          sendError(res, 'Muitas tentativas. Aguarde alguns minutos e tente novamente.', 'TOO_MANY_REQUESTS', 429);
+          return;
+        }
+
+        sendError(res, 'Email ou senha inválidos', 'INVALID_CREDENTIALS', 401);
         return;
       }
 
