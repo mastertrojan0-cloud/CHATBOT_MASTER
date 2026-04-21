@@ -39,14 +39,22 @@ app.use(helmet());
 
 const allowedOrigins = [
   'https://chatbot-master-dashboard.vercel.app',
+  'https://dashboard-xi-seven-24.vercel.app',
+  'https://dashboard-mastertrojan0-clouds-projects.vercel.app',
   'http://localhost:5173',
   'http://localhost:3000',
   process.env.FRONTEND_URL,
 ].filter((origin): origin is string => Boolean(origin));
 
+const allowedOriginPatterns = [
+  /^https:\/\/dashboard-[a-z0-9-]+\.vercel\.app$/i,
+  /^https:\/\/dashboard-[a-z0-9-]+-mastertrojan0-clouds-projects\.vercel\.app$/i,
+];
+
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin)) {
+    const isPatternAllowed = Boolean(origin) && allowedOriginPatterns.some((pattern) => pattern.test(origin));
+    if (!origin || allowedOrigins.includes(origin) || isPatternAllowed) {
       callback(null, true);
       return;
     }
