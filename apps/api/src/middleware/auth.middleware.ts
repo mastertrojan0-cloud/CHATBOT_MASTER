@@ -82,7 +82,18 @@ export async function authMiddleware(
 
       next();
     } catch (error) {
-      console.error('Auth error:', error);
+      const rawMessage = error instanceof Error ? error.message : String(error);
+      const message = rawMessage.toLowerCase();
+      const isExpectedAuthFailure =
+        message.includes('invalid token') ||
+        message.includes('jwt') ||
+        message.includes('expired');
+
+      if (isExpectedAuthFailure) {
+        console.warn('Auth invalid/expired token');
+      } else {
+        console.error('Auth error:', error);
+      }
       res.status(401).json({
         success: false,
         error: 'Token inválido ou expirado',
