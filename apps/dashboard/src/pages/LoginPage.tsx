@@ -54,6 +54,8 @@ export default function LoginPage() {
         <CardBody>
           <form onSubmit={handleSubmit} className="space-y-md">
             <Input
+              id="login-email"
+              name="email"
               label="Email"
               type="email"
               value={email}
@@ -62,6 +64,8 @@ export default function LoginPage() {
               required
             />
             <Input
+              id="login-password"
+              name="password"
               label="Senha"
               type="password"
               value={password}

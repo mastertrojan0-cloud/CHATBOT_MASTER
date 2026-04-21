@@ -6,7 +6,7 @@ import { Button } from '@/components';
 export const Topbar: React.FC = () => {
   const { tenant } = useAuthStore();
   const usagePercentage = tenant
-    ? (tenant.usage.leadsPerMonth / tenant.usage.leadsPerMonthLimit) * 100
+    ? ((tenant.usage?.leadsPerMonth || 0) / (tenant.usage?.leadsPerMonthLimit || 1)) * 100
     : 0;
 
   const isPro = tenant?.plan === 'pro';

@@ -1,5 +1,4 @@
-// FlowDesk API v1.1.0 - CORS fix
-import express, { Express, Request, Response, NextFunction } from 'express';
+import express, { Express, NextFunction, Request, Response } from 'express';
 import cors from 'cors';
 import compression from 'compression';
 import helmet from 'helmet';
@@ -21,48 +20,39 @@ import { weeklyReportJob } from './jobs/weekly-report.job';
 import { stripeWebhookHandler } from './webhooks/stripe.webhook';
 import { wahaWebhookHandler } from './webhooks/waha.webhook';
 import { logger } from './lib/logger';
+import { wahaService } from './services/waha.service';
 import './config/env';
 
 const app: Express = express();
 const port = process.env.PORT || 3000;
+let dbConnected = false;
+let dbError: string | null = null;
 
-// ==================== SETUP ====================
-
-// Setup Morgan tokens
 setupMorganTokens();
 
-// ==================== MIDDLEWARES ====================
-
-// Request ID
 app.use(requestIdMiddleware);
-
-// HTTP compression
 app.use(compression() as any);
-
-// Logging
 app.use(morganMiddleware);
 app.use(loggerStartTime);
 app.use(loggerEndTime);
-
-// Security headers
 app.use(helmet());
 
-// CORS
 const allowedOrigins = [
   'https://chatbot-master-dashboard.vercel.app',
   'http://localhost:5173',
   'http://localhost:3000',
   process.env.FRONTEND_URL,
-].filter((o): o is string => Boolean(o))
+].filter((origin): origin is string => Boolean(origin));
 
 app.use(cors({
   origin: (origin, callback) => {
     if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true)
-    } else {
-      console.warn('[CORS] Blocked origin:', origin)
-      callback(new Error('Not allowed by CORS'))
+      callback(null, true);
+      return;
     }
+
+    console.warn('[CORS] Blocked origin:', origin);
+    callback(new Error('Not allowed by CORS'));
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
@@ -77,82 +67,79 @@ const globalLimiter = rateLimit({
     success: false,
     error: {
       code: 'RATE_LIMIT',
-      message: 'Muitas requisições.',
+      message: 'Muitas requisicoes.',
     },
   },
 });
 
 app.use(globalLimiter);
-
-// Body parsing
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ limit: '10mb', extended: true }));
-
-// Rate limiting para rotas públicas
 app.use('/api/public/', publicLimiter);
 
-// ==================== HEALTH CHECKS ====================
-
-app.get('/health', (req: Request, res: Response) => {
+app.get('/health', (_req: Request, res: Response) => {
   res.json({
     success: true,
     message: 'API is running',
+    dbConnected,
+    dbError,
     timestamp: new Date().toISOString(),
   });
 });
 
-app.get('/api/health', (req: Request, res: Response) => {
+app.get('/api/health', (_req: Request, res: Response) => {
   res.json({
     success: true,
     message: 'API is healthy',
+    dbConnected,
+    dbError,
     timestamp: new Date().toISOString(),
   });
 });
 
-// ==================== PUBLIC ROUTES ====================
+app.get('/api/health/waha', async (_req: Request, res: Response) => {
+  try {
+    const diagnostics = await wahaService.getDiagnostics(process.env.WAHA_SESSION_NAME || 'default');
+    const session = (diagnostics.session as { session?: { status?: string } | null } | undefined)?.session || null;
 
-// Stripe webhook (MUST come before express.json)
+    res.json({
+      success: true,
+      data: {
+        healthy: Boolean(diagnostics.instance) || Boolean(diagnostics.session),
+        status: session?.status || null,
+        dbConnected,
+        dbError,
+        diagnostics,
+      },
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      error: error?.response?.data || error?.message || 'Failed to inspect WAHA',
+    });
+  }
+});
+
 app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), stripeWebhookHandler);
-
-// WAHA webhook
 app.post('/api/webhooks/waha/:sessionName', express.json(), wahaWebhookHandler);
-
-// Auth routes (públicas)
 app.use('/api/auth', authRoutes);
 
-// ==================== PROTECTED ROUTES ====================
-
-// Autenticação
 app.use('/api/', authMiddleware);
 
-// Auth routes
-app.post('/api/auth/logout', (req: Request, res: Response) => {
-  // Logout é stateless - apenas retorna sucesso
-  // Cliente remove o token localStorage
+app.post('/api/auth/logout', (_req: Request, res: Response) => {
   res.json({
     success: true,
     message: 'Logged out successfully',
   });
 });
 
-// Leads
 app.use('/api/leads', leadsRoutes);
-
-// Sessions (WhatsApp)
 app.use('/api/sessions', sessionsRoutes);
-
-// Tenants
 app.use('/api/tenants', tenantsRoutes);
-
-// Metrics
 app.use('/api/metrics', metricsRoutes);
 
-// 404 handler
-
-// Error logger
 app.use(errorLogger);
 
-// 404 handler
 app.use((req: Request, res: Response) => {
   res.status(404).json({
     success: false,
@@ -163,8 +150,7 @@ app.use((req: Request, res: Response) => {
   });
 });
 
-// Global error handler
-app.use((err: any, req: Request, res: Response, next: NextFunction) => {
+app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
   console.error('[GLOBAL ERROR]', err);
 
   res.status(err.status || 500).json({
@@ -176,16 +162,20 @@ app.use((err: any, req: Request, res: Response, next: NextFunction) => {
   });
 });
 
-// ==================== START SERVER ====================
-
 const startServer = async () => {
   try {
-    // Connect to database
-    await connectDb();
-    logger.info('Database connected');
-
-    // Start jobs
-    weeklyReportJob.start();
+    try {
+      await connectDb();
+      dbConnected = true;
+      dbError = null;
+      logger.info('Database connected');
+      weeklyReportJob.start();
+    } catch (error: any) {
+      dbConnected = false;
+      dbError = error?.message || 'Database connection failed';
+      logger.error({ err: error }, 'Database unavailable on boot, starting in degraded mode');
+      logger.warn('Weekly report job disabled because database is unavailable');
+    }
 
     const server = app.listen(port, () => {
       logger.info(
@@ -193,12 +183,13 @@ const startServer = async () => {
           port,
           env: process.env.NODE_ENV || 'development',
           frontend: process.env.FRONTEND_URL || 'http://localhost:5173',
+          dbConnected,
+          dbError,
         },
         'Server started'
       );
     });
 
-    // Graceful shutdown
     process.on('SIGTERM', () => {
       console.log('SIGTERM signal received: closing HTTP server');
       server.close(() => {
@@ -215,7 +206,7 @@ const startServer = async () => {
       });
     });
   } catch (error) {
-    console.error('❌ Failed to start server:', error);
+    console.error('Failed to start server:', error);
     process.exit(1);
   }
 };

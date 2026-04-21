@@ -7,18 +7,49 @@ import { prisma } from '@flowdesk/db';
 const router = Router();
 const WAHA_SESSION_NAME = process.env.WAHA_SESSION_NAME || 'default';
 
-function getSessionNameFromTenant(tenantSessionName?: string | null): string {
-  if (!tenantSessionName || tenantSessionName.trim() === '') {
+// Real WAHA statuses that mean "do not restart"
+// Docs: STOPPED | STARTING | SCAN_QR_CODE | WORKING | FAILED
+const DO_NOT_RESTART = ['WORKING', 'SCAN_QR_CODE', 'STARTING'];
+
+function getFirstValidBaseUrl(...candidates: Array<string | undefined>): string {
+  const invalidValues = new Set(['', 'placeholder', 'http://placeholder', 'https://placeholder']);
+
+  for (const candidate of candidates) {
+    const value = candidate?.trim();
+    if (!value || invalidValues.has(value.toLowerCase())) {
+      continue;
+    }
+
+    if (/^https?:\/\//i.test(value)) {
+      return value.replace(/\/$/, '');
+    }
+  }
+
+  const port = process.env.PORT || '3333';
+  return `http://localhost:${port}`;
+}
+
+async function getSessionName(req: AuthRequest): Promise<string> {
+  const tenantId = req.tenantId;
+
+  if (!tenantId) {
     return WAHA_SESSION_NAME;
   }
 
-  // WAHA CORE suporta apenas a sessão "default".
-  return WAHA_SESSION_NAME;
+  const tenant = await prisma.tenant.findUnique({
+    where: { id: tenantId },
+    select: { wahaSessionName: true },
+  });
+
+  if (tenant?.wahaSessionName) {
+    return tenant.wahaSessionName;
+  }
+
+  return `tenant-${tenantId}`;
 }
 
 /**
  * GET /api/sessions/current
- * Obter status da sessão WhatsApp atual
  */
 router.get(
   '/current',
@@ -26,51 +57,37 @@ router.get(
   requireAuth,
   async (req: AuthRequest, res: Response) => {
     try {
-      const tenant = await prisma.tenant.findUnique({
-        where: { id: req.tenantId },
-        select: { wahaSessionName: true },
-      });
-
-      if (!tenant?.wahaSessionName) {
-        res.json({
-          success: true,
-          data: { status: 'STOPPED', sessionName: WAHA_SESSION_NAME },
-        });
-        return;
-      }
-
-      const sessionName = getSessionNameFromTenant(tenant.wahaSessionName);
-      const wahaSession = await wahaService.getSession(sessionName);
-
-      if (!wahaSession.session) {
-        res.json({
-          success: true,
-          data: { status: 'STOPPED', sessionName },
-        });
-        return;
-      }
-
+      const sessionName = await getSessionName(req);
+      const { session } = await wahaService.getSession(sessionName);
+      const status = session?.status || 'STOPPED';
+      console.log(`[sessions/current] status="${status}" me=${JSON.stringify((session as any)?.me)}`);
       res.json({
         success: true,
         data: {
-          status: wahaSession.session.status,
-          phoneNumber: wahaSession.session.phone,
+          status,
+          phoneNumber: (session as any)?.me?.id || null,
           sessionName,
         },
       });
     } catch (error: any) {
-      console.error('Error fetching session:', error);
-      res.status(500).json({
-        success: false,
-        error: 'Falha ao buscar sessão',
-      });
+      console.error('[sessions/current]', error?.response?.data || error.message);
+      res.status(500).json({ success: false, error: 'Falha ao buscar sessao' });
     }
   }
 );
 
 /**
  * POST /api/sessions/connect
- * Iniciar conexão com WhatsApp (obtém QR code)
+ *
+ * WAHA session lifecycle (from docs):
+ *   STOPPED -> start -> STARTING -> SCAN_QR_CODE -> (scan) -> WORKING
+ *   FAILED  -> restart -> STARTING -> SCAN_QR_CODE -> (scan) -> WORKING
+ *
+ * Rules:
+ *   - WORKING / SCAN_QR_CODE / STARTING -> do nothing
+ *   - FAILED -> use /restart
+ *   - STOPPED (exists) -> PUT config then /start
+ *   - Not found -> POST /sessions
  */
 router.post(
   '/connect',
@@ -78,69 +95,73 @@ router.post(
   requireAuth,
   async (req: AuthRequest, res: Response) => {
     try {
-      const tenant = await prisma.tenant.findUnique({
-        where: { id: req.tenantId },
-        select: { wahaSessionName: true },
-      });
+      const sessionName = await getSessionName(req);
+      const webhookBaseUrl = getFirstValidBaseUrl(
+        process.env.WAHA_WEBHOOK_BASE_URL,
+        process.env.RAILWAY_STATIC_URL,
+        process.env.APP_URL
+      );
+      const webhookUrl = `${webhookBaseUrl}/api/webhooks/waha/${sessionName}`;
 
-      if (!tenant) {
-        res.status(404).json({
-          success: false,
-          error: 'Tenant não encontrado',
-        });
+      const { session } = await wahaService.getSession(sessionName);
+      const status = session?.status || '';
+      console.log(`[sessions/connect] current status="${status}"`);
+
+      if (DO_NOT_RESTART.includes(status)) {
+        console.log(`[sessions/connect] session is ${status} - not restarting`);
+        res.json({ success: true, data: { sessionName, status } });
         return;
       }
 
-      const sessionName = getSessionNameFromTenant(tenant.wahaSessionName);
-
-      // Check if session exists, create if not
-      const existingSession = await wahaService.getSession(sessionName);
-
-      if (!existingSession.session) {
+      if (status === 'FAILED') {
+        console.log('[sessions/connect] FAILED -> restarting');
         try {
-          await wahaService.createSession(sessionName);
-        } catch (error: any) {
-          // Session may already exist, continue
-          console.log('Create session:', error.response?.data?.message || 'created');
+          await wahaService.restartSession(sessionName);
+        } catch (e: any) {
+          console.error('[sessions/connect] restart error:', e.response?.data || e.message);
+          throw e;
+        }
+
+        await prisma.tenant.update({ where: { id: req.tenantId }, data: { wahaSessionName: sessionName } });
+        const { session: restartedSession } = await wahaService.getSession(sessionName);
+        res.json({ success: true, data: { sessionName, status: restartedSession?.status || 'STARTING' } });
+        return;
+      }
+
+      if (!session) {
+        console.log(`[sessions/connect] creating session "${sessionName}"`);
+        try {
+          await wahaService.createSession(sessionName, webhookUrl);
+        } catch (e: any) {
+          console.log('[sessions/connect] create:', e.response?.data?.message || e.message);
+          if (e.response?.status === 409) {
+            await wahaService.startSession(sessionName);
+          } else {
+            throw e;
+          }
+        }
+      } else {
+        console.log('[sessions/connect] STOPPED -> updating config and starting');
+        try {
+          await wahaService.updateSessionConfig(sessionName, webhookUrl);
+        } catch (e: any) {
+          console.log('[sessions/connect] updateConfig:', e.response?.data || e.message);
+        }
+
+        try {
+          await wahaService.startSession(sessionName);
+        } catch (e: any) {
+          console.log('[sessions/connect] start:', e.response?.data || e.message);
+          throw e;
         }
       }
 
-      try {
-        await wahaService.startSession(sessionName);
-      } catch (error: any) {
-        console.log('Start session:', error.response?.data?.message || error.message);
-      }
-
-      // Set webhook (optional, don't fail if WAHA doesn't support it)
-      const webhookBaseUrl = process.env.WAHA_WEBHOOK_BASE_URL
-        || process.env.RAILWAY_STATIC_URL
-        || process.env.APP_URL
-        || 'http://localhost:3333';
-
-      try {
-        await wahaService.setWebhook(
-          sessionName,
-          `${webhookBaseUrl}/api/webhooks/waha/${sessionName}`
-        );
-      } catch (error: any) {
-        console.log('Set webhook:', error.response?.data?.message || 'skipped');
-      }
-
-      await prisma.tenant.update({
-        where: { id: req.tenantId },
-        data: { wahaSessionName: sessionName },
-      });
-
-      res.json({
-        success: true,
-        data: { sessionName, status: 'STARTING' },
-      });
+      await prisma.tenant.update({ where: { id: req.tenantId }, data: { wahaSessionName: sessionName } });
+      const { session: updatedSession } = await wahaService.getSession(sessionName);
+      res.json({ success: true, data: { sessionName, status: updatedSession?.status || 'STARTING' } });
     } catch (error: any) {
-      console.error('Error connecting session:', error);
-      res.status(500).json({
-        success: false,
-        error: 'Falha ao conectar sessão',
-      });
+      console.error('[sessions/connect]', error?.response?.data || error.message);
+      res.status(500).json({ success: false, error: 'Falha ao conectar sessao' });
     }
   }
 );
@@ -155,25 +176,14 @@ router.get(
   requireAuth,
   async (req: AuthRequest, res: Response) => {
     try {
-      const tenant = await prisma.tenant.findUnique({
-        where: { id: req.tenantId },
-        select: { wahaSessionName: true },
-      });
+      const sessionName = await getSessionName(req);
+      const { session } = await wahaService.getSession(sessionName);
+      const status = session?.status || 'STOPPED';
 
-      if (!tenant) {
-        res.status(404).json({
+      if (status !== 'SCAN_QR_CODE') {
+        res.status(409).json({
           success: false,
-          error: 'Tenant não encontrado',
-        });
-        return;
-      }
-
-      const sessionName = getSessionNameFromTenant(tenant.wahaSessionName);
-
-      if (!tenant?.wahaSessionName) {
-        res.status(404).json({
-          success: false,
-          error: 'QR não disponível. Conecte primeiro.',
+          error: `QR indisponivel no estado atual: ${status}`,
         });
         return;
       }
@@ -183,7 +193,7 @@ router.get(
       if (!qrResult.qr) {
         res.status(404).json({
           success: false,
-          error: 'QR não disponível. Aguarde ou reconecte.',
+          error: `QR nao disponivel para a sessao ${sessionName}. Aguarde ou reconecte.`,
         });
         return;
       }
@@ -197,7 +207,7 @@ router.get(
         },
       });
     } catch (error: any) {
-      console.error('Error fetching QR:', error);
+      console.error('[sessions/qr]', error?.response?.data || error.message);
       res.status(500).json({
         success: false,
         error: 'Falha ao buscar QR code',
@@ -208,7 +218,6 @@ router.get(
 
 /**
  * POST /api/sessions/disconnect
- * Desconectar da sessão WhatsApp
  */
 router.post(
   '/disconnect',
@@ -216,42 +225,23 @@ router.post(
   requireAuth,
   async (req: AuthRequest, res: Response) => {
     try {
-      const tenant = await prisma.tenant.findUnique({
-        where: { id: req.tenantId },
-        select: { wahaSessionName: true },
-      });
-
-      if (tenant?.wahaSessionName) {
-        const sessionName = getSessionNameFromTenant(tenant.wahaSessionName);
-        try {
-          await wahaService.stopSession(sessionName);
-        } catch (error: any) {
-          console.log('Stop session error:', error.response?.data || error.message);
-        }
+      const sessionName = await getSessionName(req);
+      try {
+        await wahaService.stopSession(sessionName);
+      } catch (e: any) {
+        console.log('[sessions/disconnect] stop:', e.response?.data || e.message);
       }
-
-      await prisma.tenant.update({
-        where: { id: req.tenantId },
-        data: { wahaSessionName: '' },
-      });
-
-      res.json({
-        success: true,
-        data: { ok: true },
-      });
+      await prisma.tenant.update({ where: { id: req.tenantId }, data: { wahaSessionName: '' } });
+      res.json({ success: true, data: { ok: true } });
     } catch (error: any) {
-      console.error('Error disconnecting session:', error);
-      res.status(500).json({
-        success: false,
-        error: 'Falha ao desconectar sessão',
-      });
+      console.error('[sessions/disconnect]', error?.response?.data || error.message);
+      res.status(500).json({ success: false, error: 'Falha ao desconectar sessao' });
     }
   }
 );
 
 /**
  * GET /api/sessions/status
- * Obter status da sessão (para health checks)
  */
 router.get(
   '/status',
@@ -259,41 +249,79 @@ router.get(
   requireAuth,
   async (req: AuthRequest, res: Response) => {
     try {
-      const tenant = await prisma.tenant.findUnique({
-        where: { id: req.tenantId },
-        select: { wahaSessionName: true },
-      });
-
-      if (!tenant?.wahaSessionName) {
-        res.json({
-          success: true,
-          data: { connected: false, state: 'DISCONNECTED', sessionName: WAHA_SESSION_NAME },
-        });
-        return;
-      }
-
-      const sessionName = getSessionNameFromTenant(tenant.wahaSessionName);
-      const wahaSession = await wahaService.getSession(sessionName);
-      const rawStatus = wahaSession.session?.status || 'STOPPED';
-      const connected = rawStatus === 'WORKING' || rawStatus === 'CONNECTED';
-
+      const sessionName = await getSessionName(req);
+      const { session } = await wahaService.getSession(sessionName);
+      const status = session?.status || 'STOPPED';
+      const connected = status === 'WORKING';
       res.json({
         success: true,
         data: {
           connected,
           state: connected ? 'CONNECTED' : 'DISCONNECTED',
-          phoneNumber: wahaSession.session?.phone,
+          status,
+          phoneNumber: (session as any)?.me?.id || null,
           sessionName,
-          status: rawStatus,
           lastCheckedAt: new Date(),
         },
       });
     } catch (error: any) {
-      console.error('Error checking session status:', error);
-      res.status(500).json({
-        success: false,
-        error: 'Falha ao verificar status',
+      console.error('[sessions/status]', error?.response?.data || error.message);
+      res.status(500).json({ success: false, error: 'Falha ao verificar status' });
+    }
+  }
+);
+
+/**
+ * POST /api/sessions/reconnect
+ * Force restart - uses WAHA's native /restart endpoint (stop + start)
+ */
+router.post(
+  '/reconnect',
+  authenticatedLimiter,
+  requireAuth,
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const sessionName = await getSessionName(req);
+      console.log(`[sessions/reconnect] restarting "${sessionName}"`);
+      try {
+        await wahaService.restartSession(sessionName);
+      } catch (e: any) {
+        console.log('[sessions/reconnect]', e.response?.data || e.message);
+        try {
+          await wahaService.stopSession(sessionName);
+        } catch {}
+        try {
+          await wahaService.startSession(sessionName);
+        } catch {}
+      }
+      await prisma.tenant.update({ where: { id: req.tenantId }, data: { wahaSessionName: sessionName } });
+      const { session } = await wahaService.getSession(sessionName);
+      res.json({ success: true, data: { sessionName, status: session?.status || 'STARTING' } });
+    } catch (error: any) {
+      console.error('[sessions/reconnect]', error?.response?.data || error.message);
+      res.status(500).json({ success: false, error: 'Falha ao reconectar' });
+    }
+  }
+);
+
+/**
+ * GET /api/sessions/debug
+ * Raw WAHA state - for troubleshooting only
+ */
+router.get(
+  '/debug',
+  authenticatedLimiter,
+  requireAuth,
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const sessionName = await getSessionName(req);
+      const diagnostics = await wahaService.getDiagnostics(sessionName);
+      res.json({
+        success: true,
+        data: diagnostics,
       });
+    } catch (error: any) {
+      res.status(500).json({ error: error?.response?.data || error.message });
     }
   }
 );

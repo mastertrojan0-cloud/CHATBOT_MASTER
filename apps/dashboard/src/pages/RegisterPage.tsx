@@ -86,6 +86,8 @@ export default function RegisterPage() {
         <CardBody>
           <form onSubmit={handleSubmit} className="space-y-md">
             <Input
+              id="register-name"
+              name="name"
               label="Nome"
               type="text"
               value={fullName}
@@ -94,6 +96,8 @@ export default function RegisterPage() {
               required
             />
             <Input
+              id="register-email"
+              name="email"
               label="Email"
               type="email"
               value={email}
@@ -102,6 +106,8 @@ export default function RegisterPage() {
               required
             />
             <Input
+              id="register-password"
+              name="password"
               label="Senha"
               type="password"
               value={password}
@@ -110,6 +116,8 @@ export default function RegisterPage() {
               required
             />
             <Select
+              id="register-segment"
+              name="segment"
               label="Segmento"
               value={segment}
               onChange={(e) => setSegment(e.target.value)}

@@ -2,20 +2,29 @@
 export interface Tenant {
   id: string;
   name: string;
-  slug: string;
+  businessName?: string;
+  slug?: string;
+  userId?: string;
   plan: 'free' | 'pro';
-  isActive: boolean;
-  businessSegment: string;
-  wahaSessionName: string;
-  wahaConnected: boolean;
-  monthlyMessageLimit: number;
-  monthlyLeadLimit: number;
-  currentMonthUsage: Record<string, number> | null;
-  notifyEmail: string | null;
-  notifyPhone: string | null;
-  stripeCustomerId: string | null;
-  planExpiresAt: Date | null;
-  owner: { email: string; fullName: string } | null;
+  isActive?: boolean;
+  businessSegment?: string;
+  wahaSessionName?: string;
+  wahaConnected?: boolean;
+  waConnected?: boolean;
+  monthlyMessageLimit?: number;
+  monthlyLeadLimit?: number;
+  currentMonthUsage?: Record<string, number> | null;
+  notifyEmail?: string | null;
+  notifyPhone?: string | null;
+  stripeCustomerId?: string | null;
+  planExpiresAt?: Date | null;
+  owner?: { email: string; fullName: string } | null;
+  usage?: {
+    leadsPerMonth: number;
+    leadsPerMonthLimit: number;
+    messagesPerMonth: number;
+  };
+  waStatus?: string;
 }
 
 export interface User {

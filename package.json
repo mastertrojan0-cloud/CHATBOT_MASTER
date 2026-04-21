@@ -11,6 +11,9 @@
     "build": "yarn workspaces run build",
     "clean": "yarn workspaces run clean",
     "dev": "yarn workspaces run dev",
+    "dev:waha": "docker compose -f infra/docker-compose.yml up -d waha",
+    "dev:postgres": "docker compose -f infra/docker-compose.yml up -d postgres",
+    "dev:infra": "docker compose -f infra/docker-compose.yml up -d",
     "lint": "yarn workspaces run lint",
     "typecheck": "yarn workspaces run typecheck"
   }

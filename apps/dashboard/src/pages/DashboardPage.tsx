@@ -43,7 +43,7 @@ export default function DashboardPage() {
   const safeRecentLeads = Array.isArray(metricsData?.recentLeads) ? metricsData.recentLeads : [];
 
   const usagePercentage = tenant
-    ? (tenant.usage.leadsPerMonth / (tenant.usage.leadsPerMonthLimit || 1)) * 100
+    ? ((tenant.usage?.leadsPerMonth || 0) / (tenant.usage?.leadsPerMonthLimit || 1)) * 100
     : 0;
 
   return (

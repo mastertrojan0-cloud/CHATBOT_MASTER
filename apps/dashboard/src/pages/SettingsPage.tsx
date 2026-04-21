@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Settings, Bell, Zap, Lock } from 'lucide-react';
+import { Settings, Zap } from 'lucide-react';
 import {
   Card,
   CardHeader,
@@ -18,6 +18,21 @@ import {
 import { useTenant, useGoogleSheetsConfig } from '@/hooks/queries';
 import { useAuthStore } from '@/stores/authStore';
 
+type BusinessSettingsState = {
+  businessName: string;
+  industry: string;
+  phone: string;
+  email: string;
+  website: string;
+};
+
+type NotificationSettingsState = {
+  waNotifications: boolean;
+  emailNotifications: boolean;
+  newLeadAlert: boolean;
+  messageAlert: boolean;
+};
+
 export default function SettingsPage() {
   const { tenant } = useAuthStore();
   const isPro = tenant?.plan === 'pro';
@@ -31,26 +46,23 @@ export default function SettingsPage() {
   const notificationsInfo = tenantInfo?.notifications || {};
   const sheetsInfo = (sheetsConfig as any)?.data || sheetsConfig || {};
 
-  const [businessSettings, setBusinessSettings] = useState({
-    name: '',
-    businessSegment: '',
-    notifyPhone: '',
-    notifyEmail: '',
+  const [businessSettings, setBusinessSettings] = useState<BusinessSettingsState>({
+    businessName: '',
+    industry: '',
+    phone: '',
+    email: '',
+    website: '',
   });
 
-  const [notificationSettings, setNotificationSettings] = useState({
-    waNotifications: typeof notificationsInfo?.waNotifications === 'boolean' ? notificationsInfo.waNotifications : false,
-    emailNotifications: typeof notificationsInfo?.emailNotifications === 'boolean' ? notificationsInfo.emailNotifications : false,
-    newLeadAlert: typeof notificationsInfo?.newLeadAlert === 'boolean' ? notificationsInfo.newLeadAlert : false,
-    messageAlert: typeof notificationsInfo?.messageAlert === 'boolean' ? notificationsInfo.messageAlert : false,
+  const [notificationSettings, setNotificationSettings] = useState<NotificationSettingsState>({
+    waNotifications: false,
+    emailNotifications: false,
+    newLeadAlert: false,
+    messageAlert: false,
   });
 
-  const [sheetsSpreadsheetId, setSheetsSpreadsheetId] = useState(
-    typeof sheetsInfo?.spreadsheetId === 'string' ? sheetsInfo.spreadsheetId : ''
-  );
-  const [sheetsSheetName, setSheetsSheetName] = useState(
-    typeof sheetsInfo?.sheetName === 'string' ? sheetsInfo.sheetName : ''
-  );
+  const [sheetsSpreadsheetId, setSheetsSpreadsheetId] = useState('');
+  const [sheetsSheetName, setSheetsSheetName] = useState('');
 
   useEffect(() => {
     setBusinessSettings({
@@ -74,11 +86,11 @@ export default function SettingsPage() {
     setSheetsSheetName(typeof sheetsInfo?.sheetName === 'string' ? sheetsInfo.sheetName : '');
   }, [sheetsInfo]);
 
-  const handleBusinessChange = (field: string, value: string) => {
+  const handleBusinessChange = (field: keyof BusinessSettingsState, value: string) => {
     setBusinessSettings((prev) => ({ ...prev, [field]: value }));
   };
 
-  const handleNotificationChange = (field: string, value: boolean) => {
+  const handleNotificationChange = (field: keyof NotificationSettingsState, value: boolean) => {
     setNotificationSettings((prev) => ({ ...prev, [field]: value }));
   };
 
@@ -97,42 +109,80 @@ export default function SettingsPage() {
     });
   };
 
+  const notificationOptions: Array<{
+    id: keyof NotificationSettingsState extends infer T ? string : string;
+    field: keyof NotificationSettingsState;
+    title: string;
+    description: string;
+  }> = [
+    {
+      id: 'wa-notifications',
+      field: 'waNotifications',
+      title: 'Notificacoes por WhatsApp',
+      description: 'Receba alertas de novos leads no WhatsApp',
+    },
+    {
+      id: 'email-notifications',
+      field: 'emailNotifications',
+      title: 'Notificacoes por Email',
+      description: 'Receba relatorios diarios por email',
+    },
+    {
+      id: 'new-lead-alert',
+      field: 'newLeadAlert',
+      title: 'Alertas de Novo Lead',
+      description: 'Ser notificado quando um novo lead chegar',
+    },
+    {
+      id: 'message-alert',
+      field: 'messageAlert',
+      title: 'Alertas de Mensagem',
+      description: 'Ser notificado de novas mensagens',
+    },
+  ];
+
   return (
     <div className="p-lg space-y-lg max-w-4xl">
-      {/* Header */}
       <div>
         <h1 className="text-display-md font-display font-bold text-dark-100 flex items-center gap-md">
           <Settings className="w-8 h-8 text-brand-500" />
-          Configurações
+          Configuracoes
         </h1>
         <p className="text-body-md text-dark-400 mt-xs">
-          Gerencie os dados do seu negócio e preferências
+          Gerencie os dados do seu negocio e preferencias
         </p>
       </div>
 
-      {/* Business Settings */}
       <Card elevated className="p-lg">
-        <CardHeader title="Dados do Negócio" subtitle="Informações sobre sua empresa" />
+        <CardHeader title="Dados do Negocio" subtitle="Informacoes sobre sua empresa" />
         <CardBody className="mt-md space-y-md">
           <Input
-            label="Nome do Negócio"
+            id="business-name"
+            name="businessName"
+            label="Nome do Negocio"
             value={businessSettings.businessName}
             onChange={(e) => handleBusinessChange('businessName', e.target.value)}
             placeholder="Sua empresa"
           />
           <Input
-            label="Indústria"
+            id="business-industry"
+            name="industry"
+            label="Industria"
             value={businessSettings.industry}
             onChange={(e) => handleBusinessChange('industry', e.target.value)}
-            placeholder="Ex: Tecnologia, Saúde, Educação"
+            placeholder="Ex: Tecnologia, Saude, Educacao"
           />
           <Input
+            id="business-phone"
+            name="phone"
             label="Telefone"
             value={businessSettings.phone}
             onChange={(e) => handleBusinessChange('phone', e.target.value)}
             placeholder="(11) 98765-4321"
           />
           <Input
+            id="business-email"
+            name="email"
             label="Email"
             type="email"
             value={businessSettings.email}
@@ -140,6 +190,8 @@ export default function SettingsPage() {
             placeholder="seu@email.com"
           />
           <Input
+            id="business-website"
+            name="website"
             label="Website"
             value={businessSettings.website}
             onChange={(e) => handleBusinessChange('website', e.target.value)}
@@ -152,99 +204,42 @@ export default function SettingsPage() {
             isLoading={updateBusinessMutation.isPending}
             onClick={handleSaveBusinessSettings}
           >
-            Salvar Alterações
+            Salvar Alteracoes
           </Button>
         </CardFooter>
       </Card>
 
-      {/* Notification Settings */}
       <Card elevated className="p-lg">
         <CardHeader
-          title="Notificações"
-          subtitle={isPro ? 'Receba alertas via WhatsApp e Email' : 'Disponível apenas no plano Pro'}
+          title="Notificacoes"
+          subtitle={isPro ? 'Receba alertas via WhatsApp e Email' : 'Disponivel apenas no plano Pro'}
         />
         <CardBody className="mt-md space-y-md">
           {!isPro && (
             <Alert
               type="warning"
               title="Recurso Pro"
-              message="Este recurso está disponível apenas para clientes do plano Pro. Upgrade agora para acessar."
+              message="Este recurso esta disponivel apenas para clientes do plano Pro. Upgrade agora para acessar."
             />
           )}
 
-          <div className="flex items-center justify-between p-md bg-dark-700/50 rounded-md">
-            <div>
-              <p className="text-body-md font-medium text-dark-100">
-                Notificações por WhatsApp
-              </p>
-              <p className="text-body-sm text-dark-400">
-                Receba alertas de novos leads no WhatsApp
-              </p>
+          {notificationOptions.map((item) => (
+            <div key={item.id} className="flex items-center justify-between gap-md p-md bg-dark-700/50 rounded-md">
+              <label htmlFor={item.id} className="flex-1 cursor-pointer">
+                <p className="text-body-md font-medium text-dark-100">{item.title}</p>
+                <p className="text-body-sm text-dark-400">{item.description}</p>
+              </label>
+              <input
+                id={item.id}
+                name={item.id}
+                type="checkbox"
+                checked={notificationSettings[item.field]}
+                onChange={(e) => handleNotificationChange(item.field, e.target.checked)}
+                disabled={!isPro}
+                className="w-5 h-5 cursor-pointer"
+              />
             </div>
-            <input
-              type="checkbox"
-              checked={notificationSettings.waNotifications}
-              onChange={(e) => handleNotificationChange('waNotifications', e.target.checked)}
-              disabled={!isPro}
-              className="w-5 h-5 cursor-pointer"
-            />
-          </div>
-
-          <div className="flex items-center justify-between p-md bg-dark-700/50 rounded-md">
-            <div>
-              <p className="text-body-md font-medium text-dark-100">
-                Notificações por Email
-              </p>
-              <p className="text-body-sm text-dark-400">
-                Receba relatórios diários por email
-              </p>
-            </div>
-            <input
-              type="checkbox"
-              checked={notificationSettings.emailNotifications}
-              onChange={(e) =>
-                handleNotificationChange('emailNotifications', e.target.checked)
-              }
-              disabled={!isPro}
-              className="w-5 h-5 cursor-pointer"
-            />
-          </div>
-
-          <div className="flex items-center justify-between p-md bg-dark-700/50 rounded-md">
-            <div>
-              <p className="text-body-md font-medium text-dark-100">
-                Alertas de Novo Lead
-              </p>
-              <p className="text-body-sm text-dark-400">
-                Ser notificado quando um novo lead chegar
-              </p>
-            </div>
-            <input
-              type="checkbox"
-              checked={notificationSettings.newLeadAlert}
-              onChange={(e) => handleNotificationChange('newLeadAlert', e.target.checked)}
-              disabled={!isPro}
-              className="w-5 h-5 cursor-pointer"
-            />
-          </div>
-
-          <div className="flex items-center justify-between p-md bg-dark-700/50 rounded-md">
-            <div>
-              <p className="text-body-md font-medium text-dark-100">
-                Alertas de Mensagem
-              </p>
-              <p className="text-body-sm text-dark-400">
-                Ser notificado de novas mensagens
-              </p>
-            </div>
-            <input
-              type="checkbox"
-              checked={notificationSettings.messageAlert}
-              onChange={(e) => handleNotificationChange('messageAlert', e.target.checked)}
-              disabled={!isPro}
-              className="w-5 h-5 cursor-pointer"
-            />
-          </div>
+          ))}
         </CardBody>
         {isPro && (
           <CardFooter>
@@ -253,13 +248,12 @@ export default function SettingsPage() {
               isLoading={updateNotificationsMutation.isPending}
               onClick={handleSaveNotifications}
             >
-              Salvar Notificações
+              Salvar Notificacoes
             </Button>
           </CardFooter>
         )}
       </Card>
 
-      {/* Google Sheets Integration */}
       {isPro ? (
         <Card elevated className="p-lg">
           <CardHeader
@@ -271,19 +265,23 @@ export default function SettingsPage() {
               <Alert
                 type="success"
                 title="Conectado"
-                message={`Seus leads estão sendo sincronizados com a planilha "${typeof sheetsInfo?.sheetName === 'string' ? sheetsInfo.sheetName : ''}"`}
+                message={`Seus leads estao sendo sincronizados com a planilha "${typeof sheetsInfo?.sheetName === 'string' ? sheetsInfo.sheetName : ''}"`}
               />
             )}
 
             <Input
+              id="sheets-spreadsheet-id"
+              name="spreadsheetId"
               label="ID da Planilha"
               value={sheetsSpreadsheetId}
               onChange={(e) => setSheetsSpreadsheetId(e.target.value)}
               placeholder="ID da sua planilha do Google Sheets"
-              helperText="Você pode encontrar o ID na URL da sua planilha"
+              helperText="Voce pode encontrar o ID na URL da sua planilha"
             />
 
             <Input
+              id="sheets-sheet-name"
+              name="sheetName"
               label="Nome da Aba"
               value={sheetsSheetName}
               onChange={(e) => setSheetsSheetName(e.target.value)}
@@ -311,7 +309,6 @@ export default function SettingsPage() {
         </div>
       )}
 
-      {/* Plan Card */}
       <Card elevated className="p-lg bg-gradient-to-br from-brand-900 to-dark-800 border-brand-700">
         <CardHeader title="Seu Plano" subtitle="Gerencie sua assinatura" />
         <CardBody className="mt-md space-y-md">
@@ -339,24 +336,24 @@ export default function SettingsPage() {
               </h4>
               <ul className="space-y-xs text-body-sm text-dark-300">
                 <li className="flex items-center gap-xs">
-                  <span className="text-brand-400">✓</span>
-                  <span>Notificações por WhatsApp e Email</span>
+                  <span className="text-brand-400">+</span>
+                  <span>Notificacoes por WhatsApp e Email</span>
                 </li>
                 <li className="flex items-center gap-xs">
-                  <span className="text-brand-400">✓</span>
-                  <span>Sincronização com Google Sheets</span>
+                  <span className="text-brand-400">+</span>
+                  <span>Sincronizacao com Google Sheets</span>
                 </li>
                 <li className="flex items-center gap-xs">
-                  <span className="text-brand-400">✓</span>
-                  <span>Exportação de Leads em CSV</span>
+                  <span className="text-brand-400">+</span>
+                  <span>Exportacao de Leads em CSV</span>
                 </li>
                 <li className="flex items-center gap-xs">
-                  <span className="text-brand-400">✓</span>
-                  <span>Leads ilimitados por mês</span>
+                  <span className="text-brand-400">+</span>
+                  <span>Leads ilimitados por mes</span>
                 </li>
                 <li className="flex items-center gap-xs">
-                  <span className="text-brand-400">✓</span>
-                  <span>Suporte prioritário</span>
+                  <span className="text-brand-400">+</span>
+                  <span>Suporte prioritario</span>
                 </li>
               </ul>
               <Button variant="primary" className="w-full mt-md">

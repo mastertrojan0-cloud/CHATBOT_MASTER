@@ -47,29 +47,39 @@ export function useTenant() {
   });
 }
 
-export function useWAHASession(enabled: boolean = true) {
+export function useWAHASession() {
   return useQuery({
     queryKey: ['waha', 'session'],
     queryFn: async () => {
       const result = await api.get('/sessions/current');
-      return result.data;
+      return result.data as { status: string; phoneNumber?: string; sessionName?: string };
     },
-    enabled,
-    retryOnMount: false,
-    refetchOnWindowFocus: false,
-    refetchInterval: enabled ? 1000 * 3 : false,
+    retry: 1,
+    retryDelay: 1000,
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+    refetchInterval: 1000,
+    refetchIntervalInBackground: true,
   });
 }
 
-export function useWAHAQR() {
+export function useWAHAQR(enabled: boolean = false) {
   return useQuery({
     queryKey: ['waha', 'qr'],
     queryFn: async () => {
-      const result = await api.get('/sessions/qr');
-      return result.data;
+      try {
+        const result = await api.get('/sessions/qr');
+        return result.data as { value: string; mime?: string; expiresAt?: string } | null;
+      } catch (error: any) {
+        if ([404, 409].includes(error?.response?.status)) {
+          return null;
+        }
+        throw error;
+      }
     },
-    refetchInterval: 1000 * 5,
-    enabled: false,
+    refetchInterval: enabled ? 3000 : false,
+    enabled,
+    retry: 0,
   });
 }
 

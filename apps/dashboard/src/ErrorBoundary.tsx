@@ -4,13 +4,13 @@ export class ErrorBoundary extends React.Component<
   { children: React.ReactNode },
   { error: Error | null }
 > {
-  state = { error: null };
+  override state = { error: null };
 
   static getDerivedStateFromError(error: Error) {
     return { error };
   }
 
-  render() {
+  override render() {
     if (this.state.error) {
       return (
         <div style={{ color: 'red', padding: 40, background: '#1a1a2e', minHeight: '100vh' }}>

@@ -32,7 +32,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
   ];
 
   const usagePercentage = tenant
-    ? (tenant.usage.leadsPerMonth / (tenant.usage.leadsPerMonthLimit || 1)) * 100
+    ? ((tenant.usage?.leadsPerMonth || 0) / (tenant.usage?.leadsPerMonthLimit || 1)) * 100
     : 0;
   const isNearLimit = usagePercentage >= 80;
 
@@ -103,7 +103,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
                 />
               </div>
               <p className="text-body-sm text-dark-400">
-                {tenant?.usage.leadsPerMonth}/{tenant?.usage.leadsPerMonthLimit} leads
+                {tenant?.usage?.leadsPerMonth || 0}/{tenant?.usage?.leadsPerMonthLimit || 0} leads
               </p>
             </div>
 

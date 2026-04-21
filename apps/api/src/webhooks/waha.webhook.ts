@@ -1,13 +1,19 @@
 import { Request, Response } from 'express';
 import { prisma } from '@flowdesk/db';
 import { wahaService } from '../services/waha.service';
-import { ContactSource, LeadStatus, ConversationStatus } from '@prisma/client';
+import { BusinessSegment, ContactSource, ConversationStatus, LeadStatus, PlanType } from '@prisma/client';
 import { logger } from '../lib/logger';
+import { getPresetFlow, runFlowEngine, type FlowContext, type FlowLead } from '@flowdesk/engine';
 
 interface WahaMessagePayload {
   id: string;
   from: string;
-  body: string;
+  fromMe?: boolean;
+  body?: string;
+  text?: {
+    body?: string;
+  };
+  caption?: string;
   timestamp: number;
   _data?: {
     notifyName?: string;
@@ -24,12 +30,45 @@ function extractPhoneNumber(waId: string): string {
   return waId.replace(/@c\.us$/, '').replace(/\D/g, '');
 }
 
-function getConversationState(context: Record<string, any> | null): string {
-  return context?.state || 'NEW';
+function getConversationKey(sessionName: string, from: string): string {
+  return `${sessionName}:${extractPhoneNumber(from)}`;
 }
 
-function setConversationState(context: Record<string, any>, state: string): Record<string, any> {
-  return { ...context, state };
+function getMessageText(payload: WahaMessagePayload): string {
+  return (payload.body || payload.text?.body || payload.caption || '').trim();
+}
+
+function isInboundTextMessage(payload: WahaMessagePayload): boolean {
+  return Boolean(payload.from && !payload.fromMe && getMessageText(payload));
+}
+
+function toPlan(plan: PlanType): 'FREE' | 'PRO' {
+  return plan === 'PRO' ? 'PRO' : 'FREE';
+}
+
+function normalizeFlowContext(context: Record<string, unknown> | null, plan: PlanType): Partial<FlowContext> {
+  const value = context && typeof context === 'object' ? context : {};
+  const nextContext = value as Partial<FlowContext>;
+
+  return {
+    plan: toPlan(plan),
+    currentStepId: typeof nextContext.currentStepId === 'string' ? nextContext.currentStepId : undefined,
+    messageCount: typeof nextContext.messageCount === 'number' ? nextContext.messageCount : 0,
+    completed: Boolean(nextContext.completed),
+    collectedLead: nextContext.collectedLead && typeof nextContext.collectedLead === 'object'
+      ? nextContext.collectedLead as FlowLead
+      : {},
+  };
+}
+
+function shouldRestartFlow(messageText: string): boolean {
+  return ['iniciar', 'reiniciar', 'recomecar', 'comecar', 'menu'].includes(
+    messageText.trim().toLowerCase()
+  );
+}
+
+function getFlowForTenant(segment: BusinessSegment, plan: PlanType) {
+  return getPresetFlow(segment, toPlan(plan));
 }
 
 export async function wahaWebhookHandler(req: Request, res: Response): Promise<void> {
@@ -39,13 +78,18 @@ export async function wahaWebhookHandler(req: Request, res: Response): Promise<v
   res.status(200).json({ received: true });
 
   try {
-    if (body.event !== 'message') {
+    if (!['message', 'message.any'].includes(body.event)) {
       return;
     }
 
-    const { from, body: messageText, timestamp, _data } = body.payload;
+    const payload = body.payload;
+    const messageText = getMessageText(payload);
 
-    if (from.endsWith('@g.us') || from.endsWith('@broadcast')) {
+    if (!isInboundTextMessage(payload)) {
+      return;
+    }
+
+    if (payload.from.endsWith('@g.us') || payload.from.endsWith('@broadcast')) {
       return;
     }
 
@@ -57,7 +101,6 @@ export async function wahaWebhookHandler(req: Request, res: Response): Promise<v
       return;
     }
 
-    const monthlyLimit = tenant.monthlyLeadLimit || 50;
     const usage = (tenant.currentMonthUsage as Record<string, number>) || {};
     const messageCount = usage.messageCount || 0;
 
@@ -69,13 +112,16 @@ export async function wahaWebhookHandler(req: Request, res: Response): Promise<v
 
       await wahaService.sendMessage(
         sessionName,
-        extractPhoneNumber(from),
-        `Olá! ${ownerUser?.fullName || 'você'} atingiu o limite de mensagens do plano Free. Upgrade para Pro para continuar usando sem limites!`
+        extractPhoneNumber(payload.from),
+        `Ola! ${ownerUser?.fullName || 'voce'} atingiu o limite de mensagens do plano Free. Faça upgrade para o Pro para continuar.`
       );
       return;
     }
 
-    const phoneE164 = `+55${extractPhoneNumber(from)}`;
+    const phone = extractPhoneNumber(payload.from);
+    const phoneE164 = `+55${phone}`;
+    const messageDate = new Date(payload.timestamp * 1000);
+
     const contact = await prisma.contact.upsert({
       where: {
         tenantId_whatsappPhoneE164: {
@@ -85,18 +131,19 @@ export async function wahaWebhookHandler(req: Request, res: Response): Promise<v
       },
       create: {
         tenantId: tenant.id,
-        whatsappPhone: extractPhoneNumber(from),
+        whatsappPhone: phone,
         whatsappPhoneE164: phoneE164,
-        name: _data?.notifyName || null,
+        name: payload._data?.notifyName || null,
         source: ContactSource.WHATSAPP,
+        lastInboundAt: messageDate,
       },
       update: {
-        name: _data?.notifyName || undefined,
-        lastInboundAt: new Date(),
+        name: payload._data?.notifyName || undefined,
+        lastInboundAt: messageDate,
       },
     });
 
-    const conversation = await prisma.conversation.findFirst({
+    const existingConversation = await prisma.conversation.findFirst({
       where: {
         tenantId: tenant.id,
         contactId: contact.id,
@@ -105,156 +152,125 @@ export async function wahaWebhookHandler(req: Request, res: Response): Promise<v
       orderBy: { startedAt: 'desc' },
     });
 
-    const currentState = conversation?.context as Record<string, any> || { state: 'NEW' };
-    let responseText = '';
-    let newState = currentState;
+    const flowContext = normalizeFlowContext(
+      existingConversation?.context as Record<string, unknown> | null,
+      tenant.plan
+    );
+    const flow = getFlowForTenant(tenant.businessSegment, tenant.plan);
+    const restartFlow = shouldRestartFlow(messageText);
+    const engineResult = runFlowEngine(
+      restartFlow ? { plan: toPlan(tenant.plan) } : flowContext,
+      restartFlow ? '' : messageText,
+      flow
+    );
+    const responseText = engineResult.responses.map((item) => item.text).join('\n\n').trim();
+    const conversationKey = getConversationKey(sessionName, payload.from);
 
-    switch (currentState.state) {
-      case 'NEW': {
-        const greetings = [
-          'Olá! 👋',
-          `Bem-vindo ao atendimento da ${tenant.name}!`,
-          '',
-          'Por favor, informe seu *nome* para começarmos.',
-        ].join('\n');
-        
-        responseText = greetings;
-        newState = setConversationState(currentState, 'AWAITING_NAME');
-        break;
-      }
-
-      case 'AWAITING_NAME': {
-        responseText = `Prazer, ${messageText}! 📱\n\nAgora informe seu *telefone* com DDD (para contato futuro).`;
-        newState = {
-          name: messageText,
-          state: 'AWAITING_PHONE',
-        };
-        break;
-      }
-
-      case 'AWAITING_PHONE': {
-        const phoneDigits = messageText.replace(/\D/g, '');
-        
-        if (phoneDigits.length < 8) {
-          responseText = 'Telefone inválido. Por favor, forneça um telefone com pelo menos 8 dígitos.';
-          break;
-        }
-
-        responseText = `Perfeito! 📋\n\nQual é seu *interesse* ou produto que você procura?`;
-        newState = {
-          ...newState,
-          phone: phoneDigits,
-          state: 'AWAITING_INTEREST',
-        };
-        break;
-      }
-
-      case 'AWAITING_INTEREST': {
-        const interest = messageText;
-        
-        await prisma.lead.create({
+    const conversation = existingConversation
+      ? await prisma.conversation.update({
+          where: { id: existingConversation.id },
+          data: {
+            channelSessionId: conversationKey,
+            lastMessageAt: messageDate,
+            context: engineResult.nextContext as any,
+          },
+        })
+      : await prisma.conversation.create({
           data: {
             tenantId: tenant.id,
             contactId: contact.id,
-            conversationId: conversation?.id,
-            name: newState.name as string,
-            phone: newState.phone as string,
-            status: LeadStatus.NEW,
-            score: 50,
-            capturedData: {
-              interest,
-              source: 'WHATSAPP',
-              createdAt: new Date().toISOString(),
-            } as any,
-            source: ContactSource.WHATSAPP,
+            channelSessionId: conversationKey,
+            status: ConversationStatus.OPEN,
+            startedAt: messageDate,
+            lastMessageAt: messageDate,
+            context: engineResult.nextContext as any,
           },
         });
-
-        responseText = [
-          'Obrigado! ✅',
-          '',
-          `Recebemos seu interesse em: *${interest}*`,
-          '',
-          'Em breve nossa equipe entrará em contato.',
-          '',
-          'Atendimento via FlowDesk',
-        ].join('\n');
-
-        newState = setConversationState(currentState, 'COMPLETE');
-        break;
-      }
-
-      case 'COMPLETE': {
-        responseText = 'Obrigado pelo contato! Ja estamos processando sua solicitação. 👍';
-        break;
-      }
-
-      default: {
-        responseText = 'Digite *iniciar* para um novo atendimento.';
-        newState = { state: 'NEW' };
-      }
-    }
-
-    if (conversation) {
-      await prisma.conversation.update({
-        where: { id: conversation.id },
-        data: {
-          lastMessageAt: new Date(),
-          context: newState as any,
-        },
-      });
-    } else {
-      await prisma.conversation.create({
-        data: {
-          tenantId: tenant.id,
-          contactId: contact.id,
-          channelSessionId: sessionName,
-          status: ConversationStatus.OPEN,
-          context: newState as any,
-        },
-      });
-    }
-
-    if (responseText) {
-      await wahaService.sendMessage(sessionName, extractPhoneNumber(from), responseText);
-    }
-
-    const newUsage = {
-      ...usage,
-      messageCount: messageCount + 1,
-    };
-
-    await prisma.tenant.update({
-      where: { id: tenant.id },
-      data: {
-        currentMonthUsage: newUsage as any,
-      },
-    });
 
     await prisma.message.create({
       data: {
         tenantId: tenant.id,
         contactId: contact.id,
-        conversationId: conversation?.id,
+        conversationId: conversation.id,
+        externalMessageId: payload.id,
         direction: 'INBOUND',
         body: messageText,
-        sentAt: new Date(timestamp * 1000),
+        sentAt: messageDate,
+        providerPayload: body as any,
       },
     });
 
+    if (engineResult.lead) {
+      const capturedLead = engineResult.lead;
+      const existingLead = await prisma.lead.findFirst({
+        where: {
+          tenantId: tenant.id,
+          contactId: contact.id,
+          conversationId: conversation.id,
+        },
+      });
+
+      const leadData = {
+        tenantId: tenant.id,
+        contactId: contact.id,
+        conversationId: conversation.id,
+        name: capturedLead.name || contact.name || null,
+        phone: capturedLead.phone || phone,
+        email: capturedLead.email || contact.email || null,
+        status: LeadStatus.NEW,
+        score: tenant.plan === 'PRO' ? 80 : 50,
+        capturedData: {
+          ...capturedLead,
+          source: 'WHATSAPP',
+          createdAt: new Date().toISOString(),
+        } as any,
+        source: ContactSource.WHATSAPP,
+      };
+
+      if (existingLead) {
+        await prisma.lead.update({
+          where: { id: existingLead.id },
+          data: leadData,
+        });
+      } else {
+        await prisma.lead.create({
+          data: leadData,
+        });
+      }
+    }
+
     if (responseText) {
+      await wahaService.sendMessage(sessionName, phone, responseText);
+
       await prisma.message.create({
         data: {
           tenantId: tenant.id,
           contactId: contact.id,
-          conversationId: conversation?.id,
+          conversationId: conversation.id,
           direction: 'OUTBOUND',
           body: responseText,
           sentAt: new Date(),
         },
       });
+
+      await prisma.contact.update({
+        where: { id: contact.id },
+        data: {
+          lastOutboundAt: new Date(),
+        },
+      });
     }
+
+    await prisma.tenant.update({
+      where: { id: tenant.id },
+      data: {
+        currentMonthUsage: {
+          ...usage,
+          messageCount: messageCount + 1,
+        } as any,
+      },
+    });
   } catch (error) {
-    logger.error({ error }, 'WAHA webhook error');
+    logger.error({ error, body }, 'WAHA webhook error');
   }
 }

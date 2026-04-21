@@ -1,81 +1,109 @@
-import React, { useEffect, useState } from 'react';
-import QRCode from 'qrcode.react';
-import { Smartphone, CheckCircle, AlertCircle, Loader } from 'lucide-react';
+﻿import React, { useEffect, useRef, useState } from 'react';
+import { Smartphone, CheckCircle, AlertCircle, Loader, RefreshCw } from 'lucide-react';
 import { Card, CardHeader, CardBody, Alert, Badge, Button } from '@/components';
-import { useWAHASession, useWAHAStatus } from '@/hooks/queries';
+import { useWAHASession, useWAHAQR } from '@/hooks/queries';
 import api from '@/config/api';
+import { useQueryClient } from '@tanstack/react-query';
+
+// Real WAHA statuses: STOPPED | STARTING | SCAN_QR_CODE | WORKING | FAILED
+const INACTIVE_STATUSES = ['STOPPED', 'FAILED', ''];
+const SCANNING_STATUS = 'SCAN_QR_CODE';
+const CONNECTED_STATUSES = ['WORKING'];
+const LOADING_STATUSES = ['STARTING'];
+const STUCK_STATUSES = ['SCAN_QR_CODE', 'STARTING'];
+
+function statusLabel(status: string): string {
+  if (status === 'WORKING') return 'WhatsApp conectado com sucesso!';
+  if (status === SCANNING_STATUS) return 'Escaneie o QR code com seu WhatsApp';
+  if (status === 'STARTING') return 'Iniciando conexão com WhatsApp...';
+  if (status === 'STOPPED') return 'WhatsApp desconectado';
+  if (status === 'FAILED') return 'Falha na conexão. Clique em Conectar para tentar novamente.';
+  if (!status) return 'Carregando...';
+  return `Aguardando... (${status})`;
+}
 
 export default function ConnectPage() {
-  const [isWAHAOffline, setIsWAHAOffline] = useState(false);
+  const queryClient = useQueryClient();
   const [isConnecting, setIsConnecting] = useState(false);
+  const [isReconnecting, setIsReconnecting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const fastPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [stuckTimer, setStuckTimer] = useState(0);
+
   const {
-    data: wahaSession,
+    data: sessionData,
     isError: sessionError,
     refetch: refetchSession,
-  } = useWAHASession(!isWAHAOffline);
-  const {
-    data: wahaStatus,
-    isError: statusError,
-    refetch: refetchStatus,
-  } = useWAHAStatus(!isWAHAOffline);
-  const [qrValue, setQrValue] = useState<string | null>(null);
-  const [statusMessage, setStatusMessage] = useState<string>('');
+  } = useWAHASession();
 
-  const sessionData = (wahaSession as any)?.data || wahaSession || {};
-  const statusData = (wahaStatus as any)?.data || wahaStatus || {};
-  const sessionStatus = typeof sessionData?.status === 'string' ? sessionData.status : '';
-  const statusState = typeof statusData?.state === 'string' ? statusData.state : '';
+  const sessionStatus = sessionData?.status || '';
+  const isScanning = sessionStatus === SCANNING_STATUS;
+  const isConnected = CONNECTED_STATUSES.includes(sessionStatus);
+  const isLoading = LOADING_STATUSES.includes(sessionStatus);
+  const canConnect = INACTIVE_STATUSES.includes(sessionStatus);
+  const isStuck = STUCK_STATUSES.includes(sessionStatus) && stuckTimer > 20;
+
+  const { data: qrImageData } = useWAHAQR(isScanning);
+  const qrImage = qrImageData?.value || null;
+
+  // Fast-poll for 15 seconds after initiating connect to catch quick transitions
+  // Fast-poll: every 500ms. Duration: 180 iterations = 90 seconds
+  // This covers the entire QR validity window (60s first QR + 6x20s subsequent)
+  const startFastPoll = () => {
+    if (fastPollRef.current) clearInterval(fastPollRef.current);
+    let count = 0;
+    fastPollRef.current = setInterval(() => {
+      count++;
+      queryClient.invalidateQueries({ queryKey: ['waha', 'session'] });
+      if (count >= 180) {
+        clearInterval(fastPollRef.current!);
+        fastPollRef.current = null;
+      }
+    }, 500);
+  };
+
+  // Auto-start fast-poll as soon as QR is displayed (status = SCAN_QR_CODE)
+  // This ensures we catch WORKING immediately after the user scans
+  useEffect(() => {
+    if (sessionStatus === SCANNING_STATUS && !fastPollRef.current) {
+      startFastPoll();
+    }
+  }, [sessionStatus]);
 
   useEffect(() => {
-    if (sessionError || statusError) {
-      setIsWAHAOffline(true);
-      setQrValue(null);
-      setStatusMessage('WhatsApp ainda nao configurado. Entre em contato com o suporte para ativar.');
+    if (sessionStatus === SCANNING_STATUS) {
+      setActionError(null);
+      queryClient.invalidateQueries({ queryKey: ['waha', 'qr'] });
     }
-  }, [sessionError, statusError]);
 
+    if (sessionStatus === 'WORKING') {
+      setActionError(null);
+    }
+  }, [queryClient, sessionStatus]);
+
+  // Track how long we've been in a transitional state
   useEffect(() => {
-    if (isWAHAOffline) {
-      return;
-    }
-
-    if (!sessionStatus) {
-      setStatusMessage('Carregando status da conexão...');
-      return;
-    }
-
-    const status = sessionStatus;
-
-    if (status === 'STOPPED' || status === 'DISCONNECTED') {
-      setStatusMessage('WhatsApp desconectado');
-    } else if (status === 'WORKING' || status === 'CONNECTED') {
-      setStatusMessage('WhatsApp conectado com sucesso!');
-    } else if (status === 'STARTING' || status === 'CONNECTING') {
-      setStatusMessage('Conectando ao WhatsApp...');
-    } else if (status === 'SCAN_QR_CODE') {
-      setStatusMessage('Escaneie o QR code com sua câmera do WhatsApp');
-      api.get('/sessions/qr').then((res) => {
-        if (res.success && res.data?.value) {
-          setQrValue(res.data.value);
-        } else {
-          setQrValue(null);
-        }
-      }).catch(() => {
-        setQrValue(null);
-      });
+    if (STUCK_STATUSES.includes(sessionStatus)) {
+      const t = setInterval(() => setStuckTimer(n => n + 1), 1000);
+      return () => clearInterval(t);
     } else {
-      setStatusMessage('Status desconhecido');
+      setStuckTimer(0);
     }
-  }, [sessionStatus, isWAHAOffline]);
+  }, [sessionStatus]);
+
+  useEffect(() => {
+    return () => {
+      if (fastPollRef.current) clearInterval(fastPollRef.current);
+    };
+  }, []);
 
   const handleConnect = async () => {
     setIsConnecting(true);
     setActionError(null);
-
     try {
       await api.post('/sessions/connect');
-      await Promise.all([refetchSession(), refetchStatus()]);
+      startFastPoll();
+      await refetchSession();
     } catch (error: any) {
       const message = error?.response?.data?.error || 'Falha ao iniciar conexão com WhatsApp';
       setActionError(message);
@@ -84,8 +112,29 @@ export default function ConnectPage() {
     }
   };
 
+  const handleReconnect = async () => {
+    setIsReconnecting(true);
+    setActionError(null);
+    try {
+      await api.post('/sessions/reconnect');
+      startFastPoll();
+      await refetchSession();
+    } catch (error: any) {
+      const message = error?.response?.data?.error || 'Falha ao reconectar';
+      setActionError(message);
+    } finally {
+      setIsReconnecting(false);
+    }
+  };
+
+  const handleRefresh = () => {
+    setActionError(null);
+    queryClient.invalidateQueries({ queryKey: ['waha', 'session'] });
+    queryClient.invalidateQueries({ queryKey: ['waha', 'qr'] });
+  };
+
   const getStatusBadge = () => {
-    if (isWAHAOffline) {
+    if (sessionError) {
       return (
         <Badge variant="warning" className="flex items-center gap-xs">
           <AlertCircle className="w-3 h-3" />
@@ -93,40 +142,36 @@ export default function ConnectPage() {
         </Badge>
       );
     }
-
-    const status = sessionStatus;
-    switch (status) {
-      case 'WORKING':
-      case 'CONNECTED':
-        return (
-          <Badge variant="success" className="flex items-center gap-xs">
-            <CheckCircle className="w-3 h-3" />
-            Conectado
-          </Badge>
-        );
-      case 'STARTING':
-      case 'CONNECTING':
-        return (
-          <Badge variant="warning" className="flex items-center gap-xs">
-            <Loader className="w-3 h-3 animate-spin" />
-            Conectando
-          </Badge>
-        );
-      case 'SCAN_QR_CODE':
-        return (
-          <Badge variant="brand" className="flex items-center gap-xs">
-            <AlertCircle className="w-3 h-3" />
-            Escaneie o QR Code
-          </Badge>
-        );
-      default:
-        return (
-          <Badge variant="error" className="flex items-center gap-xs">
-            <AlertCircle className="w-3 h-3" />
-            Desconectado
-          </Badge>
-        );
+    if (isConnected) {
+      return (
+        <Badge variant="success" className="flex items-center gap-xs">
+          <CheckCircle className="w-3 h-3" />
+          Conectado
+        </Badge>
+      );
     }
+    if (isLoading) {
+      return (
+        <Badge variant="warning" className="flex items-center gap-xs">
+          <Loader className="w-3 h-3 animate-spin" />
+          Conectando
+        </Badge>
+      );
+    }
+    if (isScanning) {
+      return (
+        <Badge variant="brand" className="flex items-center gap-xs">
+          <AlertCircle className="w-3 h-3" />
+          Escaneie o QR Code
+        </Badge>
+      );
+    }
+    return (
+      <Badge variant="error" className="flex items-center gap-xs">
+        <AlertCircle className="w-3 h-3" />
+        Desconectado
+      </Badge>
+    );
   };
 
   return (
@@ -147,11 +192,22 @@ export default function ConnectPage() {
         <CardHeader title="Status da Conexão" />
         <CardBody className="mt-md space-y-md">
           <div className="flex items-center justify-between">
-            <span className="text-body-md text-dark-300">{statusMessage}</span>
-            {getStatusBadge()}
+            <span className="text-body-md text-dark-300">
+              {sessionError ? 'Erro ao buscar status do WhatsApp' : statusLabel(sessionStatus)}
+            </span>
+            <div className="flex items-center gap-sm">
+              {getStatusBadge()}
+              <button
+                onClick={handleRefresh}
+                title="Atualizar status"
+                className="p-1 text-dark-400 hover:text-brand-500 transition-colors"
+              >
+                <RefreshCw className="w-4 h-4" />
+              </button>
+            </div>
           </div>
 
-          {(sessionStatus === 'STOPPED' || sessionStatus === 'DISCONNECTED') && !isWAHAOffline && (
+          {(canConnect || sessionError) && (
             <div className="pt-sm">
               <Button
                 variant="primary"
@@ -163,6 +219,30 @@ export default function ConnectPage() {
             </div>
           )}
 
+          {isStuck && (
+            <div className="pt-sm flex items-center gap-md">
+              <span className="text-body-sm text-dark-400">
+                Parece que está demorando... Já escaneou o QR?
+              </span>
+              <Button
+                variant="secondary"
+                size="sm"
+                isLoading={isReconnecting}
+                onClick={handleReconnect}
+              >
+                Forçar Reconexão
+              </Button>
+            </div>
+          )}
+
+          {isConnected && (
+            <Alert
+              type="success"
+              title="Conectado!"
+              message="Sua conta do WhatsApp está ativa. Mensagens recebidas serão processadas automaticamente."
+            />
+          )}
+
           {actionError && (
             <Alert
               type="error"
@@ -171,29 +251,40 @@ export default function ConnectPage() {
             />
           )}
 
-          {isWAHAOffline && (
+          {sessionError && (
             <Alert
               type="warning"
               title="WhatsApp indisponível"
-              message="WhatsApp ainda nao configurado. Entre em contato com o suporte para ativar."
+              message="Não foi possível verificar o status do WhatsApp. Verifique se o serviço está em execução."
             />
           )}
         </CardBody>
       </Card>
 
       {/* QR Code Card */}
-      {!isWAHAOffline && sessionStatus === 'SCAN_QR_CODE' && qrValue && (
+      {isScanning && (
         <Card elevated className="p-lg">
-          <CardHeader title="Escaneie o QR Code" subtitle="Use seu telefone com WhatsApp aberto" />
+          <CardHeader
+            title="Escaneie o QR Code"
+            subtitle="Abra o WhatsApp → Menu (⋮) → Aparelhos conectados → Conectar aparelho"
+          />
           <CardBody className="mt-md flex justify-center py-lg">
-            <div className="bg-white p-md rounded-lg">
-              <QRCode
-                value={qrValue}
-                size={256}
-                level="H"
-                includeMargin={true}
-              />
-            </div>
+            {qrImage ? (
+              <div className="bg-white p-md rounded-lg shadow-sm">
+                <img
+                  src={qrImage}
+                  alt="QR Code WhatsApp"
+                  width={256}
+                  height={256}
+                  style={{ imageRendering: 'pixelated' }}
+                />
+              </div>
+            ) : (
+              <div className="flex flex-col items-center gap-md text-dark-400">
+                <Loader className="w-8 h-8 animate-spin text-brand-500" />
+                <span className="text-body-sm">Gerando QR code...</span>
+              </div>
+            )}
           </CardBody>
         </Card>
       )}
@@ -206,81 +297,25 @@ export default function ConnectPage() {
         />
         <CardBody className="mt-md space-y-md">
           <div className="space-y-md">
-            <div className="flex gap-md">
-              <div className="flex-shrink-0 w-8 h-8 bg-brand-500/20 rounded-full flex items-center justify-center">
-                <span className="text-brand-400 font-semibold text-sm">1</span>
+            {[
+              { label: 'Clique em "Conectar WhatsApp"', desc: 'Aguarde o QR code aparecer na tela' },
+              { label: 'Abra o WhatsApp no seu celular', desc: 'Acesse Menu (⋮) → Aparelhos conectados → Conectar aparelho' },
+              { label: 'Escaneie o QR Code', desc: 'Aponte a câmera do WhatsApp para o código exibido' },
+              { label: 'Pronto!', desc: 'Aguarde alguns segundos — o status atualizará automaticamente' },
+            ].map((step, i) => (
+              <div key={i} className="flex gap-md">
+                <div className="flex-shrink-0 w-8 h-8 bg-brand-500/20 rounded-full flex items-center justify-center">
+                  <span className="text-brand-400 font-semibold text-sm">{i + 1}</span>
+                </div>
+                <div>
+                  <h4 className="text-body-md font-medium text-dark-100">{step.label}</h4>
+                  <p className="text-body-sm text-dark-400 mt-xs">{step.desc}</p>
+                </div>
               </div>
-              <div>
-                <h4 className="text-body-md font-medium text-dark-100">
-                  Abra o WhatsApp no seu telefone
-                </h4>
-                <p className="text-body-sm text-dark-400 mt-xs">
-                  Acesse o aplicativo do WhatsApp em seu telefone
-                </p>
-              </div>
-            </div>
-
-            <div className="flex gap-md">
-              <div className="flex-shrink-0 w-8 h-8 bg-brand-500/20 rounded-full flex items-center justify-center">
-                <span className="text-brand-400 font-semibold text-sm">2</span>
-              </div>
-              <div>
-                <h4 className="text-body-md font-medium text-dark-100">
-                  Escaneie o QR Code
-                </h4>
-                <p className="text-body-sm text-dark-400 mt-xs">
-                  Use a câmera do seu WhatsApp para escanear o código ao lado
-                </p>
-              </div>
-            </div>
-
-            <div className="flex gap-md">
-              <div className="flex-shrink-0 w-8 h-8 bg-brand-500/20 rounded-full flex items-center justify-center">
-                <span className="text-brand-400 font-semibold text-sm">3</span>
-              </div>
-              <div>
-                <h4 className="text-body-md font-medium text-dark-100">
-                  Aprove a conexão
-                </h4>
-                <p className="text-body-sm text-dark-400 mt-xs">
-                  Confirme a conexão quando solicitado
-                </p>
-              </div>
-            </div>
-
-            <div className="flex gap-md">
-              <div className="flex-shrink-0 w-8 h-8 bg-brand-500/20 rounded-full flex items-center justify-center">
-                <span className="text-brand-400 font-semibold text-sm">4</span>
-              </div>
-              <div>
-                <h4 className="text-body-md font-medium text-dark-100">
-                  Pronto!
-                </h4>
-                <p className="text-body-sm text-dark-400 mt-xs">
-                  Sua conta será conectada e você poderá começar a gerenciar leads
-                </p>
-              </div>
-            </div>
+            ))}
           </div>
         </CardBody>
       </Card>
-
-      {/* Info Card */}
-      {!isWAHAOffline && statusState === 'CONNECTED' && (
-        <Alert
-          type="success"
-          title="Conectado com sucesso!"
-          message="Sua conta do WhatsApp está conectada. Você pode começar a gerenciar seus leads."
-        />
-      )}
-
-      {!isWAHAOffline && statusState === 'DISCONNECTED' && (
-        <Alert
-          type="error"
-          title="Desconectado"
-          message="Sua conexão com o WhatsApp foi perdida. Escaneie o QR Code novamente para reconectar."
-        />
-      )}
     </div>
   );
 }
