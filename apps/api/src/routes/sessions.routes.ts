@@ -236,35 +236,45 @@ router.get(
   async (req: AuthRequest, res: Response) => {
     try {
       const sessionName = await getSessionName(req);
-      const { session } = await wahaService.getSession(sessionName);
-      const status = session?.status || 'STOPPED';
 
-      if (status !== 'SCAN_QR_CODE') {
-        res.status(409).json({ success: false, error: `QR indisponivel no estado: ${status}` });
-        return;
-      }
+      const sendPng = (buffer: Buffer) => {
+        res.set('Content-Type', 'image/png');
+        res.set('Cache-Control', 'no-store');
+        res.send(buffer);
+      };
 
       const pngBuffer = await wahaService.getQrCodeImage(sessionName);
       if (pngBuffer) {
-        res.set('Content-Type', 'image/png');
-        res.set('Cache-Control', 'no-store');
-        res.send(pngBuffer);
+        sendPng(pngBuffer);
         return;
       }
 
       // Fallback: fetch base64 QR and convert to PNG buffer.
       const qrResult = await wahaService.getQrCode(sessionName);
       const code = qrResult.qr?.code;
-      if (!code) {
-        res.status(404).json({ success: false, error: 'QR nao disponivel' });
+      if (code) {
+        const base64 = code.includes(',') ? code.split(',')[1] : code;
+        const fallbackBuffer = Buffer.from(base64, 'base64');
+        sendPng(fallbackBuffer);
         return;
       }
 
-      const base64 = code.includes(',') ? code.split(',')[1] : code;
-      const fallbackBuffer = Buffer.from(base64, 'base64');
-      res.set('Content-Type', 'image/png');
-      res.set('Cache-Control', 'no-store');
-      res.send(fallbackBuffer);
+      // WAHA sometimes takes a few seconds to regenerate QR after reconnect.
+      // Trigger/start once and retry fetching before returning temporary unavailable.
+      try {
+        await wahaService.startSession(sessionName);
+      } catch {}
+
+      const retryQr = await wahaService.getQrCode(sessionName);
+      const retryCode = retryQr.qr?.code;
+      if (retryCode) {
+        const retryBase64 = retryCode.includes(',') ? retryCode.split(',')[1] : retryCode;
+        const retryBuffer = Buffer.from(retryBase64, 'base64');
+        sendPng(retryBuffer);
+        return;
+      }
+
+      res.status(503).json({ success: false, error: 'QR temporariamente indisponivel' });
     } catch (error: any) {
       console.error('[sessions/qr-image]', error?.response?.data || error.message);
       res.status(500).json({ success: false, error: 'Falha ao buscar QR code' });

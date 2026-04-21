@@ -72,7 +72,7 @@ export function useWAHAQR(enabled: boolean = false) {
         const url = URL.createObjectURL(blob);
         return url;
       } catch (error: any) {
-        if ([404, 409].includes(error?.response?.status)) {
+        if ([404, 409, 500, 503].includes(error?.response?.status)) {
           return null;
         }
         throw error;
