@@ -1,6 +1,6 @@
 ﻿import React, { useEffect, useRef, useState } from 'react';
 import { Smartphone, CheckCircle, AlertCircle, Loader, RefreshCw } from 'lucide-react';
-import { QRCodeSVG } from 'qrcode.react';
+import QRCode from 'qrcode.react';
 import { Card, CardHeader, CardBody, Alert, Badge, Button } from '@/components';
 import { useWAHASession, useWAHAQR } from '@/hooks/queries';
 import api from '@/config/api';
@@ -300,7 +300,7 @@ export default function ConnectPage() {
               </div>
             ) : qrText ? (
               <div className="bg-white p-md rounded-lg shadow-sm">
-                <QRCodeSVG value={qrText} size={256} level="M" includeMargin />
+                <QRCode value={qrText} size={256} level="M" includeMargin renderAs="svg" />
               </div>
             ) : (
               <div className="flex flex-col items-center gap-md text-dark-400">
