@@ -72,9 +72,7 @@ export function useWAHAQR(enabled: boolean = false) {
   return useQuery({
     queryKey: ['waha', 'qr'],
     queryFn: async () => {
-      try {
-        const result = await api.get('/sessions/qr');
-        const payload = (result?.data ?? result) as any;
+      const parseQrPayload = (payload: any) => {
         const raw =
           payload?.value ||
           payload?.qr ||
@@ -92,18 +90,32 @@ export function useWAHAQR(enabled: boolean = false) {
 
         const compact = raw.replace(/\s+/g, '');
         const looksLikeBase64 = /^[A-Za-z0-9+/=]+$/.test(compact) && compact.length > 128;
-
         if (looksLikeBase64) {
           return { kind: 'image' as const, value: `data:image/png;base64,${compact}` };
         }
 
-        // WAHA can return plain QR text instead of image base64 depending on configuration.
         return { kind: 'text' as const, value: raw };
-      } catch (error: any) {
-        if ([404, 409, 500, 503].includes(error?.response?.status)) {
-          return null;
+      };
+
+      try {
+        // Preferred route: binary image proxy, more stable than strict /qr status checks.
+        const blob = await api.getBlob('/sessions/qr-image');
+        const url = URL.createObjectURL(blob);
+        return { kind: 'image' as const, value: url };
+      } catch (imgError: any) {
+        try {
+          const result = await api.get('/sessions/qr');
+          const payload = (result?.data ?? result) as any;
+          return parseQrPayload(payload);
+        } catch (error: any) {
+          if ([404, 409, 500, 503].includes(error?.response?.status)) {
+            return null;
+          }
+          if ([404, 409, 500, 503].includes(imgError?.response?.status)) {
+            return null;
+          }
+          throw error;
         }
-        throw error;
       }
     },
     refetchInterval: enabled ? 3000 : false,

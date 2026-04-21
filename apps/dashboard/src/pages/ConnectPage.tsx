@@ -48,6 +48,14 @@ export default function ConnectPage() {
   const qrImage = qrImageData?.kind === 'image' ? qrImageData.value : null;
   const qrText = qrImageData?.kind === 'text' ? qrImageData.value : null;
 
+  useEffect(() => {
+    return () => {
+      if (qrImage?.startsWith('blob:')) {
+        URL.revokeObjectURL(qrImage);
+      }
+    };
+  }, [qrImage]);
+
   // Fast-poll for 15 seconds after initiating connect to catch quick transitions
   // Fast-poll: every 500ms. Duration: 180 iterations = 90 seconds
   // This covers the entire QR validity window (60s first QR + 6x20s subsequent)
