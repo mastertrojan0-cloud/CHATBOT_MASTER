@@ -259,21 +259,6 @@ router.get(
         return;
       }
 
-      // WAHA sometimes takes a few seconds to regenerate QR after reconnect.
-      // Trigger/start once and retry fetching before returning temporary unavailable.
-      try {
-        await wahaService.startSession(sessionName);
-      } catch {}
-
-      const retryQr = await wahaService.getQrCode(sessionName);
-      const retryCode = retryQr.qr?.code;
-      if (retryCode) {
-        const retryBase64 = retryCode.includes(',') ? retryCode.split(',')[1] : retryCode;
-        const retryBuffer = Buffer.from(retryBase64, 'base64');
-        sendPng(retryBuffer);
-        return;
-      }
-
       res.status(503).json({ success: false, error: 'QR temporariamente indisponivel' });
     } catch (error: any) {
       console.error('[sessions/qr-image]', error?.response?.data || error.message);
