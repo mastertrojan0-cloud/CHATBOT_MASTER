@@ -87,10 +87,18 @@ export function useWAHAQR(enabled: boolean = false) {
         }
 
         if (raw.startsWith('data:')) {
-          return raw;
+          return { kind: 'image' as const, value: raw };
         }
 
-        return `data:image/png;base64,${raw}`;
+        const compact = raw.replace(/\s+/g, '');
+        const looksLikeBase64 = /^[A-Za-z0-9+/=]+$/.test(compact) && compact.length > 128;
+
+        if (looksLikeBase64) {
+          return { kind: 'image' as const, value: `data:image/png;base64,${compact}` };
+        }
+
+        // WAHA can return plain QR text instead of image base64 depending on configuration.
+        return { kind: 'text' as const, value: raw };
       } catch (error: any) {
         if ([404, 409, 500, 503].includes(error?.response?.status)) {
           return null;

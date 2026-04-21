@@ -1,5 +1,6 @@
 ﻿import React, { useEffect, useRef, useState } from 'react';
 import { Smartphone, CheckCircle, AlertCircle, Loader, RefreshCw } from 'lucide-react';
+import { QRCodeSVG } from 'qrcode.react';
 import { Card, CardHeader, CardBody, Alert, Badge, Button } from '@/components';
 import { useWAHASession, useWAHAQR } from '@/hooks/queries';
 import api from '@/config/api';
@@ -44,7 +45,8 @@ export default function ConnectPage() {
   const isStuck = STUCK_STATUSES.includes(sessionStatus) && stuckTimer > 20;
 
   const { data: qrImageData } = useWAHAQR(isScanning);
-  const qrImage = (typeof qrImageData === 'string' ? qrImageData : null);
+  const qrImage = qrImageData?.kind === 'image' ? qrImageData.value : null;
+  const qrText = qrImageData?.kind === 'text' ? qrImageData.value : null;
 
   // Fast-poll for 15 seconds after initiating connect to catch quick transitions
   // Fast-poll: every 500ms. Duration: 180 iterations = 90 seconds
@@ -295,6 +297,10 @@ export default function ConnectPage() {
                   height={256}
                   style={{ imageRendering: 'pixelated' }}
                 />
+              </div>
+            ) : qrText ? (
+              <div className="bg-white p-md rounded-lg shadow-sm">
+                <QRCodeSVG value={qrText} size={256} level="M" includeMargin />
               </div>
             ) : (
               <div className="flex flex-col items-center gap-md text-dark-400">
