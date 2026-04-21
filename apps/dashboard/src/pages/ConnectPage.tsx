@@ -44,7 +44,7 @@ export default function ConnectPage() {
   const isStuck = STUCK_STATUSES.includes(sessionStatus) && stuckTimer > 20;
 
   const { data: qrImageData } = useWAHAQR(isScanning);
-  const qrImage = qrImageData?.value || null;
+  const qrImage = (typeof qrImageData === 'string' ? qrImageData : null);
 
   // Fast-poll for 15 seconds after initiating connect to catch quick transitions
   // Fast-poll: every 500ms. Duration: 180 iterations = 90 seconds

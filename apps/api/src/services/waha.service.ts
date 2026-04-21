@@ -129,6 +129,21 @@ export class WahaService {
     }
   }
 
+  /** Returns raw PNG buffer for QR code (no base64 conversion needed) */
+  async getQrCodeImage(sessionName: string): Promise<Buffer | null> {
+    try {
+      const { data } = await this.client.get(`/${sessionName}/auth/qr`, {
+        responseType: 'arraybuffer',
+      });
+      return Buffer.from(data);
+    } catch (error: any) {
+      if ([400, 404, 422].includes(error.response?.status)) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
   async getQrCode(sessionName: string): Promise<{ qr: { code: string; expiresAt: string } | null }> {
     try {
       // ?format=image + Accept: application/json → { mimetype: "image/png", data: "base64string" }

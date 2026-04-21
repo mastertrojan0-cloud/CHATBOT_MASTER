@@ -226,6 +226,41 @@ router.get(
 );
 
 /**
+ * GET /api/sessions/qr-image
+ * Proxy WAHA QR code as binary PNG (no base64 encoding issues)
+ */
+router.get(
+  '/qr-image',
+  authenticatedLimiter,
+  requireAuth,
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const sessionName = await getSessionName(req);
+      const { session } = await wahaService.getSession(sessionName);
+      const status = session?.status || 'STOPPED';
+
+      if (status !== 'SCAN_QR_CODE') {
+        res.status(409).json({ success: false, error: `QR indisponivel no estado: ${status}` });
+        return;
+      }
+
+      const pngBuffer = await wahaService.getQrCodeImage(sessionName);
+      if (!pngBuffer) {
+        res.status(404).json({ success: false, error: 'QR nao disponivel' });
+        return;
+      }
+
+      res.set('Content-Type', 'image/png');
+      res.set('Cache-Control', 'no-store');
+      res.send(pngBuffer);
+    } catch (error: any) {
+      console.error('[sessions/qr-image]', error?.response?.data || error.message);
+      res.status(500).json({ success: false, error: 'Falha ao buscar QR code' });
+    }
+  }
+);
+
+/**
  * POST /api/sessions/disconnect
  */
 router.post(

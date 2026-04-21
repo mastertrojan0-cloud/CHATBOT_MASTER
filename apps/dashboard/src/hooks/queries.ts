@@ -68,8 +68,9 @@ export function useWAHAQR(enabled: boolean = false) {
     queryKey: ['waha', 'qr'],
     queryFn: async () => {
       try {
-        const result = await api.get('/sessions/qr');
-        return (result.data?.data ?? result.data) as { value: string; mime?: string; expiresAt?: string } | null;
+        const blob = await api.getBlob('/sessions/qr-image');
+        const url = URL.createObjectURL(blob);
+        return url;
       } catch (error: any) {
         if ([404, 409].includes(error?.response?.status)) {
           return null;
@@ -77,7 +78,7 @@ export function useWAHAQR(enabled: boolean = false) {
         throw error;
       }
     },
-    refetchInterval: enabled ? 3000 : false,
+    refetchInterval: enabled ? 15000 : false,
     enabled,
     retry: 0,
   });
