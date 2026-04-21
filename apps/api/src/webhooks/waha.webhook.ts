@@ -38,6 +38,22 @@ function getMessageText(payload: WahaMessagePayload): string {
   return (payload.body || payload.text?.body || payload.caption || '').trim();
 }
 
+function getMessageDate(payload: WahaMessagePayload): Date {
+  const raw = (payload as any)?.timestamp;
+  const numeric = typeof raw === 'string' ? Number(raw) : raw;
+
+  if (typeof numeric === 'number' && Number.isFinite(numeric)) {
+    // WAHA can send seconds or milliseconds depending on event shape.
+    const ms = numeric > 1e12 ? numeric : numeric * 1000;
+    const date = new Date(ms);
+    if (!Number.isNaN(date.getTime())) {
+      return date;
+    }
+  }
+
+  return new Date();
+}
+
 function isInboundTextMessage(payload: WahaMessagePayload): boolean {
   return Boolean(payload.from && !payload.fromMe && getMessageText(payload));
 }
@@ -139,7 +155,7 @@ export async function wahaWebhookHandler(req: Request, res: Response): Promise<v
 
     const phone = extractPhoneNumber(payload.from);
     const phoneE164 = `+55${phone}`;
-    const messageDate = new Date(payload.timestamp * 1000);
+    const messageDate = getMessageDate(payload);
 
     const contact = await prisma.contact.upsert({
       where: {
