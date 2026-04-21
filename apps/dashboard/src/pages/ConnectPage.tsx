@@ -43,7 +43,8 @@ export default function ConnectPage() {
     isError: sessionError,
     refetch: refetchSession,
   } = useWAHASession();
-  const { data: qrImageData } = useWAHAQR(sessionData?.status === SCANNING_STATUS);
+  const shouldPollQr = sessionData?.status === SCANNING_STATUS || sessionData?.status === 'STARTING';
+  const { data: qrImageData } = useWAHAQR(shouldPollQr);
   const {
     data: telegramIntegration,
     isError: telegramIntegrationError,
@@ -142,6 +143,7 @@ export default function ConnectPage() {
     try {
       await api.post('/sessions/connect');
       startFastPoll();
+      queryClient.invalidateQueries({ queryKey: ['waha', 'qr'] });
       await refetchSession();
     } catch (error: any) {
       setActionError(extractErrorMessage(error, 'Falha ao iniciar conexao com WhatsApp'));
@@ -164,6 +166,7 @@ export default function ConnectPage() {
         }
       }
       startFastPoll();
+      queryClient.invalidateQueries({ queryKey: ['waha', 'qr'] });
       await refetchSession();
     } catch (error: any) {
       setActionError(extractErrorMessage(error, 'Falha ao reconectar'));
@@ -550,7 +553,7 @@ export default function ConnectPage() {
         </CardBody>
       </Card>
 
-      {isScanning && (
+      {(isScanning || Boolean(qrImage) || Boolean(qrText) || isLoading) && (
         <Card elevated className="p-lg">
           <CardHeader
             title="Escaneie o QR Code"
