@@ -133,6 +133,8 @@ export class WahaService {
   async getQrCodeImage(sessionName: string): Promise<Buffer | null> {
     try {
       const { data } = await this.client.get(`/${sessionName}/auth/qr`, {
+        params: { format: 'image' },
+        headers: { Accept: 'image/png' },
         responseType: 'arraybuffer',
       });
       return Buffer.from(data);
