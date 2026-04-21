@@ -257,16 +257,19 @@ export async function wahaWebhookHandler(req: Request, res: Response): Promise<v
 
     const conversationKey = getConversationKey(sessionName, payload.from);
 
-    const conversation = existingConversation
-      ? await prisma.conversation.update({
-          where: { id: existingConversation.id },
-          data: {
-            channelSessionId: conversationKey,
-            lastMessageAt: messageDate,
-            context: engineResult.nextContext as any,
-          },
-        })
-      : await prisma.conversation.create({
+    let conversation;
+    if (existingConversation) {
+      conversation = await prisma.conversation.update({
+        where: { id: existingConversation.id },
+        data: {
+          channelSessionId: conversationKey,
+          lastMessageAt: messageDate,
+          context: engineResult.nextContext as any,
+        },
+      });
+    } else {
+      try {
+        conversation = await prisma.conversation.create({
           data: {
             tenantId: tenant.id,
             contactId: contact.id,
@@ -277,6 +280,39 @@ export async function wahaWebhookHandler(req: Request, res: Response): Promise<v
             context: engineResult.nextContext as any,
           },
         });
+      } catch (err: any) {
+        const isUniqueConversation =
+          err instanceof Prisma.PrismaClientKnownRequestError &&
+          err.code === 'P2002' &&
+          Array.isArray(err.meta?.target) &&
+          err.meta.target.includes('tenantId') &&
+          err.meta.target.includes('channelSessionId');
+
+        if (!isUniqueConversation) {
+          throw err;
+        }
+
+        // Race condition between message.any and message for the same inbound.
+        const concurrentConversation = await prisma.conversation.findFirst({
+          where: {
+            tenantId: tenant.id,
+            channelSessionId: conversationKey,
+          },
+        });
+
+        if (!concurrentConversation) {
+          throw err;
+        }
+
+        conversation = await prisma.conversation.update({
+          where: { id: concurrentConversation.id },
+          data: {
+            lastMessageAt: messageDate,
+            context: engineResult.nextContext as any,
+          },
+        });
+      }
+    }
 
     try {
       await prisma.message.create({
