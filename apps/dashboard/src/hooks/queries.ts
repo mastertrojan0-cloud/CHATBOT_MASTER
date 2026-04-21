@@ -69,7 +69,7 @@ export function useWAHAQR(enabled: boolean = false) {
     queryFn: async () => {
       try {
         const result = await api.get('/sessions/qr');
-        return result.data as { value: string; mime?: string; expiresAt?: string } | null;
+        return (result.data?.data ?? result.data) as { value: string; mime?: string; expiresAt?: string } | null;
       } catch (error: any) {
         if ([404, 409].includes(error?.response?.status)) {
           return null;
