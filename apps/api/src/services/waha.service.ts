@@ -73,7 +73,7 @@ export class WahaService {
     const body: Record<string, unknown> = { name: sessionName };
     if (webhookUrl) {
       body.config = {
-        webhooks: [{ url: webhookUrl, events: ['message', 'session.status'] }],
+        webhooks: [{ url: webhookUrl, events: ['message', 'message.any', 'session.status'] }],
       };
     }
     const { data } = await this.client.post('/sessions', body);
@@ -112,7 +112,7 @@ export class WahaService {
     await this.client.put(`/sessions/${sessionName}`, {
       name: sessionName,
       config: {
-        webhooks: [{ url: webhookUrl, events: ['message', 'session.status'] }],
+        webhooks: [{ url: webhookUrl, events: ['message', 'message.any', 'session.status'] }],
       },
     });
   }
