@@ -280,8 +280,9 @@ export async function wahaWebhookHandler(req: Request, res: Response): Promise<v
       console.log(`[webhook] sending response to phone="${phone}"`);
       let sent = false;
       let lastSendError: any = null;
+      let restartedSessionForSend = false;
 
-      for (let attempt = 1; attempt <= 3; attempt++) {
+      for (let attempt = 1; attempt <= 4; attempt++) {
         try {
           await wahaService.sendMessage('default', phone, responseText);
           sent = true;
@@ -296,8 +297,19 @@ export async function wahaWebhookHandler(req: Request, res: Response): Promise<v
           const isDetachedFrame = detailsText.includes('detached Frame');
           const isTimeout = detailsText.toLowerCase().includes('timeout') || sendErr?.code === 'ECONNABORTED';
           const isServerError = typeof sendErr?.response?.status === 'number' && sendErr.response.status >= 500;
-          if (attempt < 3 && (isDetachedFrame || isTimeout || isServerError)) {
-            await sleep(700 * attempt);
+          if (isDetachedFrame && !restartedSessionForSend) {
+            restartedSessionForSend = true;
+            console.warn('[webhook] detached frame detected; restarting WAHA session before retry');
+            try {
+              await wahaService.restartSession('default');
+              await sleep(2500);
+            } catch (restartErr: any) {
+              console.error('[webhook] failed to restart session after detached frame:', restartErr?.message || restartErr);
+            }
+          }
+
+          if (attempt < 4 && (isDetachedFrame || isTimeout || isServerError)) {
+            await sleep(1000 * attempt);
             continue;
           }
 
