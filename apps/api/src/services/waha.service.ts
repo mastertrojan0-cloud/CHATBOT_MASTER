@@ -109,7 +109,7 @@ export class WahaService {
    * WARNING: If session is NOT stopped, WAHA will stop and restart it.
    */
   async updateSessionConfig(sessionName: string, webhookUrl: string): Promise<void> {
-    await this.client.put(`/sessions/${sessionName}`, {
+    await this.client.post(`/sessions/${sessionName}`, {
       name: sessionName,
       config: {
         webhooks: [{ url: webhookUrl, events: ['message', 'session.status'] }],
