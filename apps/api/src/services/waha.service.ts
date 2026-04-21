@@ -190,6 +190,9 @@ export class WahaService {
       session: sessionName,
       chatId: this.toChatId(phone),
       text: message,
+    }, {
+      // sendText can be slower on WebJS when browser is under load.
+      timeout: 90000,
     });
     return data;
   }

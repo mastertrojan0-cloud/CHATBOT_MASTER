@@ -102,6 +102,24 @@ async function waitForSessionWorking(sessionName: string, maxAttempts = 6): Prom
   return false;
 }
 
+async function hardRecycleSession(sessionName: string): Promise<boolean> {
+  try {
+    await wahaService.stopSession(sessionName);
+  } catch {
+    // Ignore stop errors; session can already be stopped/restarting.
+  }
+
+  await sleep(1500);
+
+  try {
+    await wahaService.startSession(sessionName);
+  } catch {
+    // Ignore start errors here and rely on state check below.
+  }
+
+  return waitForSessionWorking(sessionName, 8);
+}
+
 function getFlowForTenant(segment: BusinessSegment, plan: PlanType) {
   return getPresetFlow(segment, toPlan(plan));
 }
@@ -341,8 +359,12 @@ export async function wahaWebhookHandler(req: Request, res: Response): Promise<v
             console.warn('[webhook] detached frame detected; restarting WAHA session before retry');
             try {
               await wahaService.restartSession('default');
-              const isWorking = await waitForSessionWorking('default');
-              console.log(`[webhook] session after restart working=${isWorking}`);
+              let isWorking = await waitForSessionWorking('default');
+              if (!isWorking) {
+                console.warn('[webhook] session not WORKING after restart; trying hard recycle stop/start');
+                isWorking = await hardRecycleSession('default');
+              }
+              console.log(`[webhook] session recovery working=${isWorking}`);
             } catch (restartErr: any) {
               console.error('[webhook] failed to restart session after detached frame:', restartErr?.message || restartErr);
             }
