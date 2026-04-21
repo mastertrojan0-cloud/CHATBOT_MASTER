@@ -156,7 +156,14 @@ export class WahaService {
       });
       if (data?.data) {
         const mime = data.mimetype || 'image/png';
-        const dataUrl = data.data.startsWith('data:') ? data.data : `data:${mime};base64,${data.data}`;
+        const rawValue = String(data.data);
+        const rawBase64 = rawValue.startsWith('data:') ? rawValue.split(',')[1] || '' : rawValue;
+        // WAHA may include line-breaks or non-base64 chars in some environments.
+        const sanitizedBase64 = rawBase64.replace(/[^A-Za-z0-9+/=]/g, '');
+        const normalizedBase64 = sanitizedBase64.length > 0
+          ? sanitizedBase64
+          : Buffer.from(rawBase64, 'binary').toString('base64');
+        const dataUrl = `data:${mime};base64,${normalizedBase64}`;
         return { qr: { code: dataUrl, expiresAt: '' } };
       }
       return { qr: null };
