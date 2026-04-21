@@ -83,6 +83,10 @@ function shouldRestartFlow(messageText: string): boolean {
   );
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 function getFlowForTenant(segment: BusinessSegment, plan: PlanType) {
   return getPresetFlow(segment, toPlan(plan));
 }
@@ -274,28 +278,50 @@ export async function wahaWebhookHandler(req: Request, res: Response): Promise<v
 
     if (responseText) {
       console.log(`[webhook] sending response to phone="${phone}"`);
-      try {
-        await wahaService.sendMessage('default', phone, responseText);
-        console.log(`[webhook] response sent OK`);
-      } catch (sendErr: any) {
-        console.error(`[webhook] sendMessage FAILED:`, sendErr?.response?.data || sendErr.message);
+      let sent = false;
+      let lastSendError: any = null;
+
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          await wahaService.sendMessage('default', phone, responseText);
+          sent = true;
+          console.log(`[webhook] response sent OK (attempt=${attempt})`);
+          break;
+        } catch (sendErr: any) {
+          lastSendError = sendErr;
+          const details = sendErr?.response?.data || sendErr?.message || String(sendErr);
+          const detailsText = typeof details === 'string' ? details : JSON.stringify(details);
+          console.warn(`[webhook] send attempt ${attempt} failed:`, details);
+
+          const isDetachedFrame = detailsText.includes('detached Frame');
+          if (attempt < 3 && (isDetachedFrame || sendErr?.response?.status >= 500)) {
+            await sleep(700 * attempt);
+            continue;
+          }
+
+          break;
+        }
       }
 
-      await prisma.message.create({
-        data: {
-          tenantId: tenant.id,
-          contactId: contact.id,
-          conversationId: conversation.id,
-          direction: 'OUTBOUND',
-          body: responseText,
-          sentAt: new Date(),
-        },
-      });
+      if (!sent) {
+        console.error(`[webhook] sendMessage FAILED:`, lastSendError?.response?.data || lastSendError?.message || lastSendError);
+      } else {
+        await prisma.message.create({
+          data: {
+            tenantId: tenant.id,
+            contactId: contact.id,
+            conversationId: conversation.id,
+            direction: 'OUTBOUND',
+            body: responseText,
+            sentAt: new Date(),
+          },
+        });
 
-      await prisma.contact.update({
-        where: { id: contact.id },
-        data: { lastOutboundAt: new Date() },
-      });
+        await prisma.contact.update({
+          where: { id: contact.id },
+          data: { lastOutboundAt: new Date() },
+        });
+      }
     } else {
       console.warn(`[webhook] engine produced no response for text="${messageText}"`);
     }
