@@ -4,9 +4,14 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  api:
+  validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -15,12 +20,17 @@ jobs:
           node-version: '20'
           cache: 'yarn'
       - run: yarn install --frozen-lockfile
-      - run: yarn workspace @flowdesk/db prisma generate
-      - run: npx tsc -p apps/api/tsconfig.json --noEmit
-      - run: npx tsc -p apps/dashboard/tsconfig.json --noEmit
+      - run: npx prisma generate --schema packages/db/prisma/schema.prisma
+      - run: yarn workspace @flowdesk/db build
+      - run: yarn workspace @flowdesk/shared build
+      - run: yarn workspace @flowdesk/engine build
+      - run: yarn workspace @flowdesk/api typecheck
+      - run: yarn workspace @flowdesk/dashboard typecheck
+      - run: yarn workspace @flowdesk/api build
+      - run: yarn workspace @flowdesk/dashboard build
 
   deploy-api:
-    needs: api
+    needs: validate
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
     steps:
@@ -34,3 +44,7 @@ jobs:
         run: railway up --service flowdesk-api
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      - name: Verify Railway Health
+        run: |
+          curl --fail --silent --show-error https://flowdesk-api-production-e03a.up.railway.app/health
+          curl --fail --silent --show-error https://flowdesk-api-production-e03a.up.railway.app/api/health

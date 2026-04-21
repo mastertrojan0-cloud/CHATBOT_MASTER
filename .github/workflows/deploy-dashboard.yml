@@ -7,6 +7,11 @@ on:
       - 'packages/shared/**'
       - 'package.json'
       - 'yarn.lock'
+  workflow_dispatch:
+
+concurrency:
+  group: dashboard-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   deploy:
@@ -25,3 +30,7 @@ jobs:
           vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
           working-directory: apps/dashboard
           vercel-args: '--prod'
+      - name: Verify Dashboard
+        run: |
+          curl --fail --silent --show-error https://chatbot-master-dashboard.vercel.app/
+          curl --fail --silent --show-error https://chatbot-master-dashboard.vercel.app/connect
