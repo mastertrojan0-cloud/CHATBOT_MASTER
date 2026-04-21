@@ -326,4 +326,111 @@ router.get(
   }
 );
 
+/**
+ * GET /api/sessions/debug/chatbot
+ * Inspect the latest chatbot activity for the authenticated tenant.
+ */
+router.get(
+  '/debug/chatbot',
+  authenticatedLimiter,
+  requireAuth,
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const sessionName = await getSessionName(req);
+      const tenantId = req.tenantId;
+
+      if (!tenantId) {
+        res.status(400).json({
+          success: false,
+          error: 'Tenant ausente na requisicao autenticada',
+        });
+        return;
+      }
+
+      const [tenant, latestConversation, latestLead, recentMessages, diagnostics] = await Promise.all([
+        prisma.tenant.findUnique({
+          where: { id: tenantId },
+          select: {
+            id: true,
+            name: true,
+            businessSegment: true,
+            plan: true,
+            wahaSessionName: true,
+            currentMonthUsage: true,
+            isActive: true,
+          },
+        }),
+        prisma.conversation.findFirst({
+          where: { tenantId },
+          orderBy: [{ updatedAt: 'desc' }],
+          include: {
+            contact: {
+              select: {
+                id: true,
+                name: true,
+                whatsappPhone: true,
+                whatsappPhoneE164: true,
+                lastInboundAt: true,
+                lastOutboundAt: true,
+              },
+            },
+          },
+        }),
+        prisma.lead.findFirst({
+          where: { tenantId },
+          orderBy: [{ updatedAt: 'desc' }],
+          select: {
+            id: true,
+            name: true,
+            phone: true,
+            email: true,
+            status: true,
+            score: true,
+            createdAt: true,
+            updatedAt: true,
+            capturedData: true,
+            conversationId: true,
+            contactId: true,
+          },
+        }),
+        prisma.message.findMany({
+          where: { tenantId },
+          orderBy: [{ createdAt: 'desc' }],
+          take: 10,
+          select: {
+            id: true,
+            externalMessageId: true,
+            direction: true,
+            body: true,
+            sentAt: true,
+            createdAt: true,
+            providerPayload: true,
+            conversationId: true,
+            contactId: true,
+          },
+        }),
+        wahaService.getDiagnostics(sessionName),
+      ]);
+
+      res.json({
+        success: true,
+        data: {
+          tenant,
+          sessionName,
+          diagnostics,
+          latestConversation,
+          latestLead,
+          recentMessages,
+        },
+      });
+    } catch (error: any) {
+      console.error('[sessions/debug/chatbot]', error?.response?.data || error.message);
+      res.status(500).json({
+        success: false,
+        error: error?.response?.data || error.message || 'Falha ao inspecionar chatbot',
+      });
+    }
+  }
+);
+
 export default router;
