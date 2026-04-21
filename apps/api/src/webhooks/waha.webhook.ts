@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { prisma } from '@flowdesk/db';
 import { wahaService } from '../services/waha.service';
-import { BusinessSegment, ContactSource, ConversationStatus, LeadStatus, PlanType } from '@prisma/client';
+import { BusinessSegment, ContactSource, ConversationStatus, LeadStatus, PlanType, Prisma } from '@prisma/client';
 import { logger } from '../lib/logger';
 import { getPresetFlow, runFlowEngine, type FlowContext, type FlowLead } from '@flowdesk/engine';
 
@@ -87,6 +87,21 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+async function waitForSessionWorking(sessionName: string, maxAttempts = 6): Promise<boolean> {
+  for (let i = 0; i < maxAttempts; i++) {
+    try {
+      const session = await wahaService.getSession(sessionName);
+      if (session.session?.status === 'WORKING') {
+        return true;
+      }
+    } catch {
+      // Ignore transient WAHA read errors during restart.
+    }
+    await sleep(2000);
+  }
+  return false;
+}
+
 function getFlowForTenant(segment: BusinessSegment, plan: PlanType) {
   return getPresetFlow(segment, toPlan(plan));
 }
@@ -139,6 +154,22 @@ export async function wahaWebhookHandler(req: Request, res: Response): Promise<v
     }
 
     console.log(`[webhook] tenant="${tenant.id}" plan="${tenant.plan}" segment="${tenant.businessSegment}"`);
+
+    if (payload.id) {
+      const duplicateInbound = await prisma.message.findFirst({
+        where: {
+          tenantId: tenant.id,
+          externalMessageId: payload.id,
+          direction: 'INBOUND',
+        },
+        select: { id: true },
+      });
+
+      if (duplicateInbound) {
+        console.log(`[webhook] duplicate inbound ignored externalMessageId="${payload.id}"`);
+        return;
+      }
+    }
 
     const usage = (tenant.currentMonthUsage as Record<string, number>) || {};
     const messageCount = usage.messageCount || 0;
@@ -229,18 +260,26 @@ export async function wahaWebhookHandler(req: Request, res: Response): Promise<v
           },
         });
 
-    await prisma.message.create({
-      data: {
-        tenantId: tenant.id,
-        contactId: contact.id,
-        conversationId: conversation.id,
-        externalMessageId: payload.id,
-        direction: 'INBOUND',
-        body: messageText,
-        sentAt: messageDate,
-        providerPayload: body as any,
-      },
-    });
+    try {
+      await prisma.message.create({
+        data: {
+          tenantId: tenant.id,
+          contactId: contact.id,
+          conversationId: conversation.id,
+          externalMessageId: payload.id,
+          direction: 'INBOUND',
+          body: messageText,
+          sentAt: messageDate,
+          providerPayload: body as any,
+        },
+      });
+    } catch (err: any) {
+      if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
+        console.log(`[webhook] inbound insert duplicate ignored externalMessageId="${payload.id}"`);
+        return;
+      }
+      throw err;
+    }
 
     if (engineResult.lead) {
       const capturedLead = engineResult.lead;
@@ -302,7 +341,8 @@ export async function wahaWebhookHandler(req: Request, res: Response): Promise<v
             console.warn('[webhook] detached frame detected; restarting WAHA session before retry');
             try {
               await wahaService.restartSession('default');
-              await sleep(2500);
+              const isWorking = await waitForSessionWorking('default');
+              console.log(`[webhook] session after restart working=${isWorking}`);
             } catch (restartErr: any) {
               console.error('[webhook] failed to restart session after detached frame:', restartErr?.message || restartErr);
             }
