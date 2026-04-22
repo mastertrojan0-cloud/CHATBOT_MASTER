@@ -3,6 +3,8 @@ import { AuthRequest } from '../types';
 import { requireAuth, authenticatedLimiter } from '../middleware';
 import { wahaService } from '../services/waha.service';
 import { prisma } from '@flowdesk/db';
+import { getPresetFlow, runFlowEngine, type FlowContext, type FlowLead } from '@flowdesk/engine';
+import { BusinessSegment, ConversationStatus, PlanType } from '@prisma/client';
 
 const router = Router();
 const WAHA_SESSION_NAME = process.env.WAHA_SESSION_NAME || 'default';
@@ -14,6 +16,35 @@ const WAHA_MULTI_SESSION_ENABLED = ['1', 'true', 'yes', 'on'].includes(
 // Real WAHA statuses that mean "do not restart"
 // Docs: STOPPED | STARTING | SCAN_QR_CODE | WORKING | FAILED
 const DO_NOT_RESTART = ['WORKING', 'SCAN_QR_CODE', 'STARTING'];
+
+function toFlowPlan(plan: PlanType): 'FREE' | 'PRO' {
+  return plan === 'PRO' ? 'PRO' : 'FREE';
+}
+
+function normalizeFlowContext(context: Record<string, unknown> | null, plan: PlanType): Partial<FlowContext> {
+  const value = context && typeof context === 'object' ? context : {};
+  const nextContext = value as Partial<FlowContext>;
+
+  return {
+    plan: toFlowPlan(plan),
+    currentStepId: typeof nextContext.currentStepId === 'string' ? nextContext.currentStepId : undefined,
+    messageCount: typeof nextContext.messageCount === 'number' ? nextContext.messageCount : 0,
+    completed: Boolean(nextContext.completed),
+    collectedLead: nextContext.collectedLead && typeof nextContext.collectedLead === 'object'
+      ? nextContext.collectedLead as FlowLead
+      : {},
+  };
+}
+
+function shouldRestartFlow(messageText: string): boolean {
+  return ['iniciar', 'reiniciar', 'recomecar', 'comecar', 'menu'].includes(
+    messageText.trim().toLowerCase()
+  );
+}
+
+function getFlowForTenant(segment: BusinessSegment, plan: PlanType) {
+  return getPresetFlow(segment, toFlowPlan(plan));
+}
 
 function buildTenantSessionBase(tenantId: string): string {
   const normalizedTenantId = tenantId.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
@@ -711,6 +742,96 @@ router.get(
         success: false,
         error: error?.response?.data || error.message || 'Falha ao inspecionar chatbot',
       });
+    }
+  }
+);
+
+/**
+ * POST /api/sessions/test-bot
+ * Simulate an inbound message and preview the bot response without sending WhatsApp messages.
+ */
+router.post(
+  '/test-bot',
+  authenticatedLimiter,
+  requireAuth,
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const tenantId = req.tenantId;
+      const messageText = String(req.body?.message || '').trim();
+      const resetContext = req.body?.resetContext === true;
+
+      if (!tenantId) {
+        res.status(400).json({ success: false, error: 'Tenant ausente na requisicao autenticada' });
+        return;
+      }
+
+      if (!messageText) {
+        res.status(400).json({ success: false, error: 'Informe uma mensagem para testar o bot' });
+        return;
+      }
+
+      const tenant = await prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: {
+          id: true,
+          businessSegment: true,
+          plan: true,
+          isActive: true,
+        },
+      });
+
+      if (!tenant || !tenant.isActive) {
+        res.status(404).json({ success: false, error: 'Tenant ativo nao encontrado para este teste' });
+        return;
+      }
+
+      const latestConversation = resetContext
+        ? null
+        : await prisma.conversation.findFirst({
+          where: {
+            tenantId,
+            status: ConversationStatus.OPEN,
+          },
+          orderBy: { updatedAt: 'desc' },
+          select: {
+            id: true,
+            context: true,
+            updatedAt: true,
+          },
+        });
+
+      const flowContext = resetContext
+        ? { plan: toFlowPlan(tenant.plan) }
+        : normalizeFlowContext(
+          latestConversation?.context as Record<string, unknown> | null,
+          tenant.plan
+        );
+
+      const restartFlow = shouldRestartFlow(messageText);
+      const engineResult = runFlowEngine(
+        restartFlow ? { plan: toFlowPlan(tenant.plan) } : flowContext,
+        restartFlow ? '' : messageText,
+        getFlowForTenant(tenant.businessSegment, tenant.plan)
+      );
+      const responseText = engineResult.responses.map((item) => item.text).join('\n\n').trim();
+
+      res.json({
+        success: true,
+        data: {
+          input: messageText,
+          response: responseText,
+          responses: engineResult.responses,
+          lead: engineResult.lead || null,
+          nextContext: engineResult.nextContext,
+          usedExistingConversation: Boolean(latestConversation) && !resetContext && !restartFlow,
+          existingConversationId: latestConversation?.id || null,
+          existingConversationUpdatedAt: latestConversation?.updatedAt || null,
+          resetContext: resetContext || restartFlow,
+        },
+      });
+    } catch (error: any) {
+      console.error('[sessions/test-bot]', error?.response?.data || error.message || error);
+      res.status(500).json({ success: false, error: 'Falha ao simular resposta do bot' });
     }
   }
 );

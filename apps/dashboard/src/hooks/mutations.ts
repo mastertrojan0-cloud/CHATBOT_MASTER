@@ -151,6 +151,16 @@ export function useConfigureTelegramWebhook() {
   });
 }
 
+export function useTestWhatsAppBot() {
+  return useMutation({
+    mutationFn: (payload: { message: string; resetContext?: boolean }) =>
+      api.post('/sessions/test-bot', payload),
+    onError: (error: any) => {
+      toast.error(error?.response?.data?.error || 'Erro ao testar o bot do WhatsApp');
+    },
+  });
+}
+
 export function useLogout() {
   const queryClient = useQueryClient();
   const authStore = useAuthStore();

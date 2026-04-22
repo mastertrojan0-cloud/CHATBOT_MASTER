@@ -3,7 +3,7 @@ import { Smartphone, CheckCircle, AlertCircle, Loader, RefreshCw, Send, Copy, Bo
 import QRCode from 'qrcode.react';
 import { Card, CardHeader, CardBody, Alert, Badge, Button, ConfirmDialog, Input } from '@/components';
 import { useWAHASession, useWAHAQR, useTelegramIntegration } from '@/hooks/queries';
-import { useConfigureTelegramWebhook, useSaveTelegramConfig, useTestTelegramConfig } from '@/hooks/mutations';
+import { useConfigureTelegramWebhook, useSaveTelegramConfig, useTestTelegramConfig, useTestWhatsAppBot } from '@/hooks/mutations';
 import api from '@/config/api';
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -32,6 +32,15 @@ export default function ConnectPage() {
   const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [botTestMessage, setBotTestMessage] = useState('oi');
+  const [botTestResetContext, setBotTestResetContext] = useState(true);
+  const [botTestResult, setBotTestResult] = useState<null | {
+    input: string;
+    response: string;
+    lead: Record<string, unknown> | null;
+    usedExistingConversation: boolean;
+    resetContext: boolean;
+  }>(null);
   const [telegramCopyFeedback, setTelegramCopyFeedback] = useState<string | null>(null);
   const [telegramBotToken, setTelegramBotToken] = useState('');
   const [telegramWebhookSecret, setTelegramWebhookSecret] = useState('');
@@ -58,6 +67,7 @@ export default function ConnectPage() {
   const saveTelegramConfigMutation = useSaveTelegramConfig();
   const testTelegramConfigMutation = useTestTelegramConfig();
   const configureTelegramWebhookMutation = useConfigureTelegramWebhook();
+  const testWhatsAppBotMutation = useTestWhatsAppBot();
 
   const sessionStatus = sessionData?.status || '';
   const isScanning = sessionStatus === SCANNING_STATUS;
@@ -217,6 +227,22 @@ export default function ConnectPage() {
     queryClient.invalidateQueries({ queryKey: ['waha', 'session'] });
     queryClient.invalidateQueries({ queryKey: ['waha', 'qr'] });
     queryClient.invalidateQueries({ queryKey: ['telegram', 'integration'] });
+  };
+
+  const handleTestWhatsAppBot = async () => {
+    const result = await testWhatsAppBotMutation.mutateAsync({
+      message: botTestMessage.trim(),
+      resetContext: botTestResetContext,
+    });
+
+    const payload = (result?.data ?? result) as any;
+    setBotTestResult({
+      input: payload?.input || botTestMessage.trim(),
+      response: payload?.response || '',
+      lead: payload?.lead || null,
+      usedExistingConversation: Boolean(payload?.usedExistingConversation),
+      resetContext: Boolean(payload?.resetContext),
+    });
   };
 
   const handleCopyTelegramWebhook = async () => {
@@ -382,6 +408,83 @@ export default function ConnectPage() {
               type="warning"
               title="WhatsApp indisponivel"
               message="Nao foi possivel verificar o status do WhatsApp. Verifique se o servico esta em execucao."
+            />
+          )}
+        </CardBody>
+      </Card>
+
+      <Card elevated className="p-lg">
+        <CardHeader
+          title="Testar Bot do WhatsApp"
+          subtitle="Simule uma mensagem recebida e veja a resposta do fluxo sem precisar de outro numero"
+        />
+        <CardBody className="mt-md space-y-md">
+          <div className="space-y-sm">
+            <label htmlFor="whatsapp-bot-test-message" className="block text-body-sm font-medium text-dark-300">
+              Mensagem de teste
+            </label>
+            <textarea
+              id="whatsapp-bot-test-message"
+              value={botTestMessage}
+              onChange={(e) => setBotTestMessage(e.target.value)}
+              rows={4}
+              className="input min-h-[120px] resize-y"
+              placeholder="Digite a mensagem que o cliente enviaria no WhatsApp"
+            />
+            <p className="text-body-sm text-dark-400">
+              Esse teste usa o mesmo motor do bot, mas nao envia mensagem real para o WhatsApp.
+            </p>
+          </div>
+
+          <label className="flex items-center gap-sm text-body-sm text-dark-300">
+            <input
+              type="checkbox"
+              checked={botTestResetContext}
+              onChange={(e) => setBotTestResetContext(e.target.checked)}
+            />
+            Comecar do zero neste teste
+          </label>
+
+          <div className="flex flex-wrap gap-sm">
+            <Button
+              variant="primary"
+              isLoading={testWhatsAppBotMutation.isPending}
+              onClick={handleTestWhatsAppBot}
+              disabled={!botTestMessage.trim()}
+            >
+              <Send className="w-4 h-4 mr-2" />
+              Testar resposta do bot
+            </Button>
+          </div>
+
+          {botTestResult && (
+            <div className="grid gap-md md:grid-cols-2">
+              <div className="p-md rounded-md bg-dark-700/50">
+                <p className="text-body-sm text-dark-400">Mensagem simulada</p>
+                <p className="text-body-md text-dark-100 mt-xs whitespace-pre-wrap">
+                  {botTestResult.input}
+                </p>
+              </div>
+              <div className="p-md rounded-md bg-dark-700/50">
+                <p className="text-body-sm text-dark-400">Resposta prevista do bot</p>
+                <p className="text-body-md text-dark-100 mt-xs whitespace-pre-wrap">
+                  {botTestResult.response || 'O fluxo atual nao gerou texto para essa etapa.'}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {botTestResult && (
+            <Alert
+              type="success"
+              title={botTestResult.usedExistingConversation ? 'Teste usando contexto atual' : 'Teste iniciado do zero'}
+              message={
+                botTestResult.lead
+                  ? `O motor tambem montou um lead parcial neste teste.${botTestResult.resetContext ? ' O contexto foi reiniciado antes da simulacao.' : ''}`
+                  : botTestResult.resetContext
+                    ? 'O contexto foi reiniciado antes da simulacao.'
+                    : 'A resposta foi simulada com o contexto atual do tenant quando disponivel.'
+              }
             />
           )}
         </CardBody>
