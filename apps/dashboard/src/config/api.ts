@@ -2,6 +2,7 @@ import axios from 'axios'
 import { useAuthStore } from '@/stores/authStore'
 
 const PROD_API_URL = 'https://flowdesk-api-production-e03a.up.railway.app/api'
+const TENANT_STORAGE_KEY = 'flowdesk_tenant_id'
 
 function resolveBaseUrl(): string {
   const configured = import.meta.env.VITE_API_URL
@@ -29,9 +30,30 @@ function getToken(): string {
   return useAuthStore.getState().token || ''
 }
 
+function getTenantId(): string {
+  const state = useAuthStore.getState()
+  return (
+    state.user?.tenantId ||
+    state.tenant?.id ||
+    sessionStorage.getItem(TENANT_STORAGE_KEY) ||
+    ''
+  )
+}
+
 function authHeaders(): Record<string, string> {
   const token = getToken()
-  return token ? { Authorization: `Bearer ${token}` } : {}
+  const tenantId = getTenantId()
+  const headers: Record<string, string> = {}
+
+  if (token) {
+    headers.Authorization = `Bearer ${token}`
+  }
+
+  if (tenantId) {
+    headers['X-Tenant-Id'] = tenantId
+  }
+
+  return headers
 }
 
 axios.interceptors.response.use(

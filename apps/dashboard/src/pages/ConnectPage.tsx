@@ -43,7 +43,13 @@ export default function ConnectPage() {
     isError: sessionError,
     refetch: refetchSession,
   } = useWAHASession();
-  const shouldPollQr = sessionData?.status === SCANNING_STATUS || sessionData?.status === 'STARTING';
+  const shouldPollQr =
+    sessionError ||
+    isConnecting ||
+    isReconnecting ||
+    isResetting ||
+    sessionData?.status === SCANNING_STATUS ||
+    sessionData?.status === 'STARTING';
   const { data: qrImageData } = useWAHAQR(shouldPollQr);
   const {
     data: telegramIntegration,

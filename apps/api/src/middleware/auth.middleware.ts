@@ -3,6 +3,7 @@ import { AuthRequest, AuthUser } from '../types';
 import { verifySupabaseJWT } from '../config/supabase';
 import { prisma } from '@flowdesk/db';
 import { PlanType } from '@prisma/client';
+import { resolveTenantUserForEmail } from '../lib/tenant-auth';
 
 interface TenantCacheEntry {
   plan: PlanType;
@@ -59,10 +60,8 @@ export async function authMiddleware(
       const supabaseUser = await verifySupabaseJWT(token);
       const userEmail = supabaseUser.email || '';
 
-      const tenantUser = await prisma.tenantUser.findFirst({
-        where: { email: userEmail, isActive: true },
-        include: { tenant: { select: { id: true, name: true } } },
-      });
+      const preferredTenantId = req.header('x-tenant-id')?.trim() || null;
+      const { selected: tenantUser } = await resolveTenantUserForEmail(userEmail, preferredTenantId);
 
       if (!tenantUser) {
         res.status(401).json({
@@ -79,6 +78,13 @@ export async function authMiddleware(
       } as AuthUser;
 
       req.tenantId = tenantUser.tenant.id;
+
+      await prisma.tenantUser.update({
+        where: { id: tenantUser.id },
+        data: { lastLoginAt: new Date() },
+      }).catch(() => {
+        // Ignore best-effort activity timestamps during auth.
+      });
 
       next();
     } catch (error) {
@@ -179,11 +185,37 @@ export async function requirePro(
     }
 
     if (cached.plan !== PlanType.PRO) {
-      res.status(403).json({
-        success: false,
-        error: 'Recurso disponível apenas no plano Pro.',
+      // Safety check: cache can be stale right after upgrade events.
+      const freshTenant = await prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: { plan: true, isActive: true },
       });
-      return;
+
+      if (!freshTenant) {
+        res.status(403).json({
+          success: false,
+          error: 'Tenant não encontrado',
+        });
+        return;
+      }
+
+      setCachedTenant(tenantId, freshTenant.plan, freshTenant.isActive);
+
+      if (!freshTenant.isActive) {
+        res.status(403).json({
+          success: false,
+          error: 'Conta suspensa. Verifique seu pagamento.',
+        });
+        return;
+      }
+
+      if (freshTenant.plan !== PlanType.PRO) {
+        res.status(403).json({
+          success: false,
+          error: 'Recurso disponível apenas no plano Pro.',
+        });
+        return;
+      }
     }
 
     next();

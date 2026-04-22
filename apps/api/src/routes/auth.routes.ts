@@ -6,6 +6,7 @@ import { sendSuccess, sendError } from '../lib/response';
 import { supabase } from '../config/supabase';
 import { prisma } from '@flowdesk/db';
 import { PlanType, BusinessSegment, TenantUserRole } from '@prisma/client';
+import { resolveTenantUserForEmail } from '../lib/tenant-auth';
 
 const router = Router();
 
@@ -35,6 +36,11 @@ const authLimiter = rateLimit({
     },
   },
 });
+
+function getPreferredTenantId(req: Request): string | null {
+  const headerValue = req.header('x-tenant-id');
+  return headerValue?.trim() || null;
+}
 
 function generateSlug(text: string): string {
   const normalized = text
@@ -86,6 +92,21 @@ router.post(
         return;
       }
 
+      const { selected: tenantUser } = await resolveTenantUserForEmail(
+        normalizedEmail,
+        getPreferredTenantId(req)
+      );
+
+      if (!tenantUser) {
+        sendError(res, 'Nenhum tenant ativo encontrado para este usuario', 'TENANT_NOT_FOUND', 403);
+        return;
+      }
+
+      await prisma.tenantUser.update({
+        where: { id: tenantUser.id },
+        data: { lastLoginAt: new Date() },
+      });
+
       sendSuccess(res, {
         accessToken: data.session.access_token,
         refreshToken: data.session.refresh_token,
@@ -93,6 +114,13 @@ router.post(
         user: {
           id: data.user.id,
           email: data.user.email,
+        },
+        tenant: {
+          id: tenantUser.tenant.id,
+          name: tenantUser.tenant.name,
+          slug: tenantUser.tenant.slug,
+          plan: tenantUser.tenant.plan.toLowerCase(),
+          role: tenantUser.role,
         },
       });
     } catch (error) {

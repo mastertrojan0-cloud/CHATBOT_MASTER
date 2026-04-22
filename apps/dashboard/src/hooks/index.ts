@@ -2,6 +2,8 @@
 import { useAuthStore } from '@/stores/authStore';
 import api from '@/config/api';
 
+const TENANT_STORAGE_KEY = 'flowdesk_tenant_id';
+
 export function useLocalStorage<T>(key: string, initialValue: T) {
   const [storedValue, setStoredValue] = useState<T>(() => {
     try {
@@ -67,19 +69,25 @@ export function useAuthInit() {
         
         if (tenantResponse.success && tenantResponse.data) {
           const tenantData = tenantResponse.data;
+          const usage = tenantData.currentMonthUsage || {};
+          const leadsPerMonth = usage.leads ?? usage.leadCount ?? 0;
+          const messagesPerMonth = usage.messages ?? usage.messageCount ?? 0;
+          const leadsPerMonthLimit = tenantData.monthlyLeadLimit ?? tenantData.leadsPerMonthLimit ?? 100;
+          const waConnected = tenantData.wahaConnected ?? tenantData.waConnected ?? false;
           setTenant({
             id: tenantData.id,
             name: tenantData.name || tenantData.businessName,
             businessName: tenantData.businessName,
             plan: tenantData.plan,
             usage: {
-              leadsPerMonth: 0,
-              leadsPerMonthLimit: tenantData.leadsPerMonthLimit || 100,
-              messagesPerMonth: 0,
+              leadsPerMonth,
+              leadsPerMonthLimit,
+              messagesPerMonth,
             },
-            waConnected: tenantData.waConnected,
+            waConnected,
             waStatus: 'disconnected',
           });
+          sessionStorage.setItem(TENANT_STORAGE_KEY, tenantData.id);
           setUser({
             id: tenantData.userId,
             email: '',
@@ -90,6 +98,7 @@ export function useAuthInit() {
       } catch (error) {
         console.error('Error initializing auth:', error);
         sessionStorage.removeItem('flowdesk_access');
+        sessionStorage.removeItem(TENANT_STORAGE_KEY);
       } finally {
         setIsLoading(false);
       }

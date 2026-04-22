@@ -109,7 +109,10 @@ async function bindSessionToTenant(
     },
   });
 
-  if (conflictingTenants.length > 0 && !transferOwnership) {
+  const effectiveTransferOwnership =
+    transferOwnership || (!WAHA_MULTI_SESSION_ENABLED && sessionName === WAHA_SESSION_NAME);
+
+  if (conflictingTenants.length > 0 && !effectiveTransferOwnership) {
     return {
       ok: false,
       status: 409,
@@ -122,7 +125,7 @@ async function bindSessionToTenant(
   }
 
   await prisma.$transaction(async (tx) => {
-    if (conflictingTenants.length > 0 && transferOwnership) {
+    if (conflictingTenants.length > 0 && effectiveTransferOwnership) {
       await tx.tenant.updateMany({
         where: { id: { in: conflictingTenants.map((tenant) => tenant.id) } },
         data: { wahaSessionName: '' },
