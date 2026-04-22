@@ -1,7 +1,28 @@
 import axios from 'axios'
 import { useAuthStore } from '@/stores/authStore'
 
-const BASE_URL = import.meta.env.VITE_API_URL || '/api'
+const PROD_API_URL = 'https://flowdesk-api-production-e03a.up.railway.app/api'
+
+function resolveBaseUrl(): string {
+  const configured = import.meta.env.VITE_API_URL
+  if (configured && configured.trim()) {
+    return configured
+  }
+
+  if (typeof window !== 'undefined') {
+    const host = window.location.hostname.toLowerCase()
+    if (
+      host === 'chatbot-master-dashboard.vercel.app' ||
+      host.endsWith('.vercel.app')
+    ) {
+      return PROD_API_URL
+    }
+  }
+
+  return '/api'
+}
+
+const BASE_URL = resolveBaseUrl()
 let isHandling401 = false
 
 function getToken(): string {
