@@ -1,6 +1,21 @@
 import { useQuery } from '@tanstack/react-query';
 import api from '@/config/api';
 
+export interface TelegramIntegrationView {
+  configured: boolean;
+  tenantSlug: string;
+  botUsername: string | null;
+  botId: string | null;
+  tokenPreview: string | null;
+  webhookSecretConfigured: boolean;
+  webhookTargetUrl: string;
+  webhookConfiguredUrl: string | null;
+  webhookRegistered: boolean;
+  webhookActiveAt: string | null;
+  lastError: string | null;
+  webhookInfo: Record<string, any> | null;
+}
+
 export function useDashboardMetrics() {
   return useQuery({
     queryKey: ['metrics', 'dashboard'],
@@ -144,25 +159,27 @@ export function useGoogleSheetsConfig(enabled: boolean = true) {
 }
 
 export function useTelegramIntegration(enabled: boolean = true) {
-  return useQuery({
+  return useQuery<TelegramIntegrationView>({
     queryKey: ['telegram', 'integration'],
     queryFn: async () => {
-      const result = await api.get('/tenants/me/telegram');
+      const result = await api.get('/tenants/me');
       const payload = (result?.data ?? result) as any;
 
       return {
-        configured: Boolean(payload?.configured),
-        tenantSlug: payload?.tenantSlug || '',
-        botUsername: payload?.botUsername || null,
-        botId: payload?.botId || null,
-        tokenPreview: payload?.tokenPreview || null,
-        webhookSecretConfigured: Boolean(payload?.webhookSecretConfigured),
-        webhookTargetUrl: payload?.webhookTargetUrl || '',
-        webhookConfiguredUrl: payload?.webhookConfiguredUrl || null,
-        webhookRegistered: Boolean(payload?.webhookRegistered),
-        webhookActiveAt: payload?.webhookActiveAt || null,
-        lastError: payload?.lastError || null,
-        webhookInfo: payload?.webhookInfo || null,
+        configured: Boolean(payload?.telegramConfigured),
+        tenantSlug: payload?.slug || '',
+        botUsername: payload?.telegramBotUsername || null,
+        botId: null,
+        tokenPreview: null,
+        webhookSecretConfigured: false,
+        webhookTargetUrl: payload?.slug
+          ? `https://flowdesk-api-production-e03a.up.railway.app/api/webhooks/telegram/${payload.slug}`
+          : '',
+        webhookConfiguredUrl: null,
+        webhookRegistered: false,
+        webhookActiveAt: null,
+        lastError: null,
+        webhookInfo: null,
       };
     },
     enabled,
