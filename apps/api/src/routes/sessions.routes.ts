@@ -6,10 +6,19 @@ import { prisma } from '@flowdesk/db';
 
 const router = Router();
 const WAHA_SESSION_NAME = process.env.WAHA_SESSION_NAME || 'default';
+const LEGACY_SHARED_SESSION_NAME = 'default';
+const WAHA_MULTI_SESSION_ENABLED = ['1', 'true', 'yes', 'on'].includes(
+  String(process.env.WAHA_MULTI_SESSION || '').trim().toLowerCase()
+);
 
 // Real WAHA statuses that mean "do not restart"
 // Docs: STOPPED | STARTING | SCAN_QR_CODE | WORKING | FAILED
 const DO_NOT_RESTART = ['WORKING', 'SCAN_QR_CODE', 'STARTING'];
+
+function buildTenantSessionBase(tenantId: string): string {
+  const normalizedTenantId = tenantId.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+  return `tenant-${normalizedTenantId.slice(0, 24)}`;
+}
 
 function getFirstValidBaseUrl(...candidates: Array<string | undefined>): string {
   const invalidValues = new Set(['', 'placeholder', 'http://placeholder', 'https://placeholder']);
@@ -43,9 +52,90 @@ function getRequestBaseUrl(req: AuthRequest): string | undefined {
 }
 
 async function getSessionName(req: AuthRequest): Promise<string> {
-  // WAHA Core only supports a single session named "default".
-  // Multi-session (tenant-scoped names) requires WAHA Plus.
-  return WAHA_SESSION_NAME;
+  if (!req.tenantId || !WAHA_MULTI_SESSION_ENABLED) {
+    return WAHA_SESSION_NAME;
+  }
+
+  const tenant = await prisma.tenant.findUnique({
+    where: { id: req.tenantId },
+    select: { wahaSessionName: true },
+  });
+
+  const boundSessionName = tenant?.wahaSessionName?.trim();
+  if (boundSessionName && boundSessionName !== LEGACY_SHARED_SESSION_NAME) {
+    return boundSessionName;
+  }
+
+  // Deterministic per-tenant session name prevents cross-tenant reuse.
+  return buildTenantSessionBase(req.tenantId);
+}
+
+async function getTenantBoundSessionName(req: AuthRequest): Promise<string> {
+  if (!req.tenantId) {
+    return '';
+  }
+
+  if (!WAHA_MULTI_SESSION_ENABLED) {
+    return WAHA_SESSION_NAME;
+  }
+
+  const tenant = await prisma.tenant.findUnique({
+    where: { id: req.tenantId },
+    select: { wahaSessionName: true },
+  });
+
+  return tenant?.wahaSessionName?.trim() || '';
+}
+
+async function bindSessionToTenant(
+  req: AuthRequest,
+  sessionName: string,
+  transferOwnership = false
+): Promise<{ ok: true } | { ok: false; status: number; error: string; details?: unknown }> {
+  if (!req.tenantId) {
+    return { ok: false, status: 400, error: 'Tenant ausente na requisicao autenticada' };
+  }
+
+  const conflictingTenants = await prisma.tenant.findMany({
+    where: {
+      id: { not: req.tenantId },
+      wahaSessionName: sessionName,
+    },
+    select: {
+      id: true,
+      name: true,
+      isActive: true,
+      updatedAt: true,
+    },
+  });
+
+  if (conflictingTenants.length > 0 && !transferOwnership) {
+    return {
+      ok: false,
+      status: 409,
+      error: 'Sessao WhatsApp ja vinculada a outro tenant. Use transferOwnership=true para transferencia controlada.',
+      details: {
+        sessionName,
+        ownerTenantIds: conflictingTenants.map((tenant) => tenant.id),
+      },
+    };
+  }
+
+  await prisma.$transaction(async (tx) => {
+    if (conflictingTenants.length > 0 && transferOwnership) {
+      await tx.tenant.updateMany({
+        where: { id: { in: conflictingTenants.map((tenant) => tenant.id) } },
+        data: { wahaSessionName: '' },
+      });
+    }
+
+    await tx.tenant.update({
+      where: { id: req.tenantId! },
+      data: { wahaSessionName: sessionName },
+    });
+  });
+
+  return { ok: true };
 }
 
 function getWebhookBaseUrl(req: AuthRequest): string {
@@ -61,6 +151,14 @@ function getWebhookUrl(req: AuthRequest, sessionName: string): string {
   return `${getWebhookBaseUrl(req)}/api/webhooks/waha/${sessionName}`;
 }
 
+function tenantOwnsSession(boundSessionName: string, sessionName: string): boolean {
+  if (!WAHA_MULTI_SESSION_ENABLED) {
+    return sessionName === WAHA_SESSION_NAME;
+  }
+
+  return boundSessionName !== '' && boundSessionName === sessionName;
+}
+
 /**
  * GET /api/sessions/current
  */
@@ -71,15 +169,18 @@ router.get(
   async (req: AuthRequest, res: Response) => {
     try {
       const sessionName = await getSessionName(req);
+      const boundSessionName = await getTenantBoundSessionName(req);
+      const ownsSession = tenantOwnsSession(boundSessionName, sessionName);
       const { session } = await wahaService.getSession(sessionName);
-      const status = session?.status || 'STOPPED';
+      const status = ownsSession ? (session?.status || 'STOPPED') : 'STOPPED';
       console.log(`[sessions/current] status="${status}" me=${JSON.stringify((session as any)?.me)}`);
       res.json({
         success: true,
         data: {
           status,
-          phoneNumber: (session as any)?.me?.id || null,
+          phoneNumber: ownsSession ? (session as any)?.me?.id || null : null,
           sessionName,
+          ownsSession,
         },
       });
     } catch (error: any) {
@@ -109,6 +210,7 @@ router.post(
   async (req: AuthRequest, res: Response) => {
     try {
       const sessionName = await getSessionName(req);
+      const transferOwnership = req.body?.transferOwnership === true;
       const webhookUrl = getWebhookUrl(req, sessionName);
       console.log(`[sessions/connect] webhook="${webhookUrl}"`);
 
@@ -117,6 +219,11 @@ router.post(
       console.log(`[sessions/connect] current status="${status}"`);
 
       if (DO_NOT_RESTART.includes(status)) {
+        const bindResult = await bindSessionToTenant(req, sessionName, transferOwnership);
+        if (bindResult.ok === false) {
+          res.status(bindResult.status).json({ success: false, error: bindResult.error, details: bindResult.details });
+          return;
+        }
         console.log(`[sessions/connect] session is ${status} - not restarting`);
         res.json({ success: true, data: { sessionName, status } });
         return;
@@ -131,7 +238,11 @@ router.post(
           throw e;
         }
 
-        await prisma.tenant.update({ where: { id: req.tenantId }, data: { wahaSessionName: sessionName } });
+        const bindResult = await bindSessionToTenant(req, sessionName, transferOwnership);
+        if (bindResult.ok === false) {
+          res.status(bindResult.status).json({ success: false, error: bindResult.error, details: bindResult.details });
+          return;
+        }
         const { session: restartedSession } = await wahaService.getSession(sessionName);
         res.json({ success: true, data: { sessionName, status: restartedSession?.status || 'STARTING' } });
         return;
@@ -165,7 +276,11 @@ router.post(
         }
       }
 
-      await prisma.tenant.update({ where: { id: req.tenantId }, data: { wahaSessionName: sessionName } });
+      const bindResult = await bindSessionToTenant(req, sessionName, transferOwnership);
+      if (bindResult.ok === false) {
+        res.status(bindResult.status).json({ success: false, error: bindResult.error, details: bindResult.details });
+        return;
+      }
       const { session: updatedSession } = await wahaService.getSession(sessionName);
       res.json({ success: true, data: { sessionName, status: updatedSession?.status || 'STARTING' } });
     } catch (error: any) {
@@ -301,17 +416,20 @@ router.get(
   async (req: AuthRequest, res: Response) => {
     try {
       const sessionName = await getSessionName(req);
+      const boundSessionName = await getTenantBoundSessionName(req);
+      const ownsSession = tenantOwnsSession(boundSessionName, sessionName);
       const { session } = await wahaService.getSession(sessionName);
       const status = session?.status || 'STOPPED';
-      const connected = status === 'WORKING';
+      const connected = ownsSession && status === 'WORKING';
       res.json({
         success: true,
         data: {
           connected,
           state: connected ? 'CONNECTED' : 'DISCONNECTED',
           status,
-          phoneNumber: (session as any)?.me?.id || null,
+          phoneNumber: connected ? (session as any)?.me?.id || null : null,
           sessionName,
+          ownsSession,
           lastCheckedAt: new Date(),
         },
       });
@@ -335,6 +453,7 @@ router.post(
   async (req: AuthRequest, res: Response) => {
     try {
       const sessionName = await getSessionName(req);
+      const transferOwnership = req.body?.transferOwnership === true;
       const webhookUrl = getWebhookUrl(req, sessionName);
       console.log(`[sessions/reconnect] "${sessionName}" webhook="${webhookUrl}"`);
 
@@ -355,12 +474,111 @@ router.post(
         await wahaService.createSession(sessionName, webhookUrl);
       }
 
-      await prisma.tenant.update({ where: { id: req.tenantId }, data: { wahaSessionName: sessionName } });
+      const bindResult = await bindSessionToTenant(req, sessionName, transferOwnership);
+      if (bindResult.ok === false) {
+        res.status(bindResult.status).json({ success: false, error: bindResult.error, details: bindResult.details });
+        return;
+      }
       const { session: updatedSession } = await wahaService.getSession(sessionName);
       res.json({ success: true, data: { sessionName, status: updatedSession?.status || 'STARTING' } });
     } catch (error: any) {
       console.error('[sessions/reconnect]', error?.response?.data || error.message);
       res.status(500).json({ success: false, error: 'Falha ao reconectar' });
+    }
+  }
+);
+
+/**
+ * POST /api/sessions/reset
+ * Stop current tenant session, clear binding and force a fresh tenant session (new QR required).
+ */
+router.post(
+  '/reset',
+  authenticatedLimiter,
+  requireAuth,
+  async (req: AuthRequest, res: Response) => {
+    try {
+      const transferOwnership = req.body?.transferOwnership === true;
+      const boundSessionName = await getTenantBoundSessionName(req);
+      const currentSessionName = boundSessionName || (await getSessionName(req));
+
+      try {
+        await wahaService.stopSession(currentSessionName);
+      } catch (e: any) {
+        console.log('[sessions/reset] stop:', e.response?.data || e.message);
+      }
+
+      // Logout drops WA auth and guarantees fresh QR on next connect.
+      try {
+        await wahaService.logoutSession(currentSessionName);
+      } catch (e: any) {
+        console.log('[sessions/reset] logout:', e.response?.data || e.message);
+      }
+
+      if (!req.tenantId) {
+        res.status(400).json({ success: false, error: 'Tenant ausente na requisicao autenticada' });
+        return;
+      }
+
+      const baseSessionName = buildTenantSessionBase(req.tenantId);
+      const freshSuffix = Date.now().toString(36).slice(-6);
+      const freshSessionName = WAHA_MULTI_SESSION_ENABLED
+        ? `${baseSessionName}-${freshSuffix}`
+        : WAHA_SESSION_NAME;
+      const webhookUrl = getWebhookUrl(req, freshSessionName);
+
+      await prisma.tenant.update({
+        where: { id: req.tenantId },
+        data: { wahaSessionName: '' },
+      });
+
+      const bindResult = await bindSessionToTenant(req, freshSessionName, transferOwnership);
+      if (bindResult.ok === false) {
+        res.status(bindResult.status).json({ success: false, error: bindResult.error, details: bindResult.details });
+        return;
+      }
+
+      const { session } = await wahaService.getSession(freshSessionName);
+      if (session) {
+        try {
+          await wahaService.stopSession(freshSessionName);
+        } catch {}
+        try {
+          await wahaService.logoutSession(freshSessionName);
+        } catch {}
+        try {
+          await wahaService.updateSessionConfig(freshSessionName, webhookUrl);
+        } catch (e: any) {
+          console.log('[sessions/reset] updateConfig:', e.response?.data || e.message);
+        }
+        await wahaService.startSession(freshSessionName);
+      } else {
+        await wahaService.createSession(freshSessionName, webhookUrl);
+      }
+
+      const { session: updatedSession } = await wahaService.getSession(freshSessionName);
+      let qr: string | null = null;
+      if (updatedSession?.status === 'SCAN_QR_CODE') {
+        try {
+          const qrResult = await wahaService.getQrCode(freshSessionName);
+          qr = qrResult.qr?.code || null;
+        } catch (e: any) {
+          console.log('[sessions/reset] qr:', e.response?.data || e.message);
+        }
+      }
+
+      res.json({
+        success: true,
+        data: {
+          previousSessionName: currentSessionName,
+          sessionName: freshSessionName,
+          status: updatedSession?.status || 'STARTING',
+          qr,
+        },
+      });
+    } catch (error: any) {
+      console.error('[sessions/reset]', error?.response?.data || error.message);
+      res.status(500).json({ success: false, error: 'Falha ao resetar sessao' });
     }
   }
 );
