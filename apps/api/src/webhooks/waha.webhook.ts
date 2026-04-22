@@ -23,8 +23,11 @@ interface WahaMessagePayload {
 interface WahaWebhookBody {
   event: string;
   session: string;
-  payload: WahaMessagePayload;
+  payload: WahaMessagePayload | Record<string, unknown>;
 }
+
+const SESSION_RECOVERY_COOLDOWN_MS = 60_000;
+const sessionRecoveryAttempts = new Map<string, number>();
 
 function extractPhoneNumber(waId: string): string {
   return waId.replace(/@c\.us$/, '').replace(/\D/g, '');
@@ -124,6 +127,139 @@ function getFlowForTenant(segment: BusinessSegment, plan: PlanType) {
   return getPresetFlow(segment, toPlan(plan));
 }
 
+async function resolveTenantForSession(sessionName: string) {
+  const matchedActiveTenants = await prisma.tenant.findMany({
+    where: {
+      wahaSessionName: sessionName,
+      isActive: true,
+    },
+    orderBy: { createdAt: 'asc' },
+    take: 2,
+  });
+
+  if (matchedActiveTenants.length > 1) {
+    logger.error(
+      { sessionName, tenantIds: matchedActiveTenants.map((tenant) => tenant.id) },
+      'WAHA session matched multiple active tenants'
+    );
+    return null;
+  }
+
+  if (matchedActiveTenants.length === 1) {
+    return matchedActiveTenants[0]!;
+  }
+
+  const activeTenants = await prisma.tenant.findMany({
+    where: { isActive: true },
+    orderBy: { createdAt: 'asc' },
+    take: 2,
+  });
+
+  if (activeTenants.length === 1) {
+    const tenant = activeTenants[0]!;
+    logger.warn(
+      { sessionName, tenantId: tenant.id, wahaSessionName: tenant.wahaSessionName },
+      'WAHA session resolved using single-tenant fallback'
+    );
+    return tenant;
+  }
+
+  if (activeTenants.length > 1) {
+    logger.error(
+      { sessionName, tenantIds: activeTenants.map((tenant) => tenant.id) },
+      'WAHA session could not be resolved uniquely across active tenants'
+    );
+  }
+
+  return null;
+}
+
+function extractSessionStatus(payload: Record<string, unknown>): string | null {
+  const directStatus = payload.status;
+  if (typeof directStatus === 'string' && directStatus.trim()) {
+    return directStatus.trim().toUpperCase();
+  }
+
+  const nestedSession = payload.session;
+  if (nestedSession && typeof nestedSession === 'object') {
+    const nestedStatus = (nestedSession as Record<string, unknown>).status;
+    if (typeof nestedStatus === 'string' && nestedStatus.trim()) {
+      return nestedStatus.trim().toUpperCase();
+    }
+  }
+
+  const nestedData = payload.data;
+  if (nestedData && typeof nestedData === 'object') {
+    const nestedStatus = (nestedData as Record<string, unknown>).status;
+    if (typeof nestedStatus === 'string' && nestedStatus.trim()) {
+      return nestedStatus.trim().toUpperCase();
+    }
+  }
+
+  return null;
+}
+
+function canAttemptRecovery(sessionName: string): boolean {
+  const lastAttemptAt = sessionRecoveryAttempts.get(sessionName) || 0;
+  return Date.now() - lastAttemptAt >= SESSION_RECOVERY_COOLDOWN_MS;
+}
+
+async function handleSessionStatusEvent(sessionName: string, payload: Record<string, unknown>): Promise<void> {
+  const status = extractSessionStatus(payload);
+  const tenant = await resolveTenantForSession(sessionName);
+
+  logger.info(
+    {
+      sessionName,
+      status,
+      tenantId: tenant?.id || null,
+      payload,
+    },
+    'WAHA session status event received'
+  );
+
+  if (tenant && tenant.wahaSessionName !== sessionName) {
+    await prisma.tenant.update({
+      where: { id: tenant.id },
+      data: { wahaSessionName: sessionName },
+    });
+  }
+
+  if (!status) {
+    return;
+  }
+
+  if (status === 'WORKING') {
+    sessionRecoveryAttempts.delete(sessionName);
+    return;
+  }
+
+  if (!['FAILED', 'STOPPED'].includes(status)) {
+    return;
+  }
+
+  if (!canAttemptRecovery(sessionName)) {
+    logger.warn({ sessionName, status }, 'Skipping WAHA session recovery due to cooldown');
+    return;
+  }
+
+  sessionRecoveryAttempts.set(sessionName, Date.now());
+  logger.warn({ sessionName, status }, 'Attempting automatic WAHA session recovery');
+
+  try {
+    await wahaService.restartSession(sessionName);
+    let recovered = await waitForSessionWorking(sessionName, 8);
+
+    if (!recovered) {
+      recovered = await hardRecycleSession(sessionName);
+    }
+
+    logger.info({ sessionName, status, recovered }, 'WAHA session recovery finished');
+  } catch (error) {
+    logger.error({ sessionName, status, error }, 'WAHA session recovery failed');
+  }
+}
+
 export async function wahaWebhookHandler(req: Request, res: Response): Promise<void> {
   const { sessionName } = req.params;
   const body = req.body as WahaWebhookBody;
@@ -133,12 +269,17 @@ export async function wahaWebhookHandler(req: Request, res: Response): Promise<v
   console.log(`[webhook] received event="${body.event}" session="${sessionName}"`);
 
   try {
+    if (body.event === 'session.status') {
+      await handleSessionStatusEvent(sessionName, (body.payload || {}) as Record<string, unknown>);
+      return;
+    }
+
     if (!['message', 'message.any'].includes(body.event)) {
       console.log(`[webhook] skipping event="${body.event}"`);
       return;
     }
 
-    const payload = body.payload;
+    const payload = body.payload as WahaMessagePayload;
     const messageText = getMessageText(payload);
 
     console.log(`[webhook] from="${payload.from}" fromMe=${payload.fromMe} text="${messageText}"`);
@@ -153,14 +294,7 @@ export async function wahaWebhookHandler(req: Request, res: Response): Promise<v
       return;
     }
 
-    const tenant = await prisma.tenant.findFirst({
-      where: { wahaSessionName: sessionName },
-    }) ?? await prisma.tenant.findFirst({
-      // Fallback: WAHA Core always uses "default" session.
-      // If DB has an old tenant-scoped name stored, still find the active tenant.
-      where: { isActive: true },
-      orderBy: { createdAt: 'asc' },
-    });
+    const tenant = await resolveTenantForSession(sessionName);
 
     if (!tenant) {
       console.error(`[webhook] NO TENANT FOUND for session="${sessionName}" — run Connect to register webhook`);
@@ -452,4 +586,3 @@ export async function wahaWebhookHandler(req: Request, res: Response): Promise<v
     console.error('[webhook] UNHANDLED ERROR:', error);
   }
 }
-
