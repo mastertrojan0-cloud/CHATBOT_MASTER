@@ -76,7 +76,9 @@ export class WahaService {
         webhooks: [{ url: webhookUrl, events: ['message', 'message.any', 'session.status'] }],
       };
     }
-    const { data } = await this.client.post('/sessions', body);
+    // WAHA's /sessions/start endpoint creates or updates the session and starts it
+    // in one request, which is more reliable on some hosted WEBJS deployments.
+    const { data } = await this.client.post('/sessions/start', body);
     return data;
   }
 
