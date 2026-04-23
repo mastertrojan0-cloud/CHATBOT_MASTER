@@ -3,7 +3,7 @@
 ## Resumo executivo
 - Data da auditoria: 23/04/2026
 - Commit base (antes): `34358169438db2d2cd9c28070198734bb06f33b7`
-- Commit apos correcoes: `N/A (nao commitado neste ambiente)`
+- Commit apos correcoes: `ad930abf1700432af273e4694b6d533091d0f832`
 
 ## Escopo e evidencias
 - Estrutura mapeada: `apps/api/src`, `apps/dashboard/src`, `packages/engine/src`, `packages/db/prisma`
@@ -122,7 +122,7 @@ Output executado:
 | A-005 | Media | Cache/Billing | `apps/api/src/webhooks/stripe.webhook.ts` | Invalicao de cache ausente em parte dos eventos | corrigido |
 | A-006 | Media | Configuracao | `apps/api/src/config/env.ts`, `.env.example`, `apps/api/src/config/supabase.ts` | Drift entre `SUPABASE_SERVICE_KEY` vs `SUPABASE_SERVICE_ROLE_KEY`; `JWT_SECRET` ausente no exemplo | corrigido |
 | A-007 | Media | Operacao | `packages/db/prisma` | `prisma migrate status` falha com `Schema engine error` | pendente |
-| A-008 | Media | Seguranca | `apps/api/src/routes/auth.routes.ts` / infra | Rate limit de login em producao sem `429` no teste rapido | pendente |
+| A-008 | Media | Seguranca | `apps/api/src/routes/auth.routes.ts` / infra | Rate limit em producao apresentou comportamento inconsistente entre rodadas (passou no reteste pos-push) | monitorar |
 | A-009 | Baixa | Qualidade | `apps/api/src/controllers/*`, `apps/dashboard/src/*` | Dead code e rotas duplicadas (`top-interests`) | pendente |
 | A-010 | Media | Dependencias | lockfile/workspaces | `uuid` vulneravel via `node-cron` | pendente |
 
@@ -151,7 +151,7 @@ Output executado:
 - `npx tsc -p apps/api/tsconfig.json --noEmit` -> OK
 - `npx tsc -p apps/dashboard/tsconfig.json --noEmit` -> OK
 - `yarn workspace @flowdesk/dashboard build` -> OK
-- Reexecucao dos testes de endpoint em producao -> endpoints criticos responderam corretamente; rate-limit continuou sem `429`
+- Reexecucao dos testes de endpoint em producao -> endpoints criticos responderam corretamente; rate-limit retornou `429` no reteste
 
 ## Pendencias para proximo sprint (priorizado)
 1. Implementar rate-limit distribuido para login (Redis/Upstash ou store compartilhada) e revalidar `429` sob replicas.
@@ -171,3 +171,5 @@ Output executado:
 - Priorizar hardening operacional (rate-limit distribuido + observabilidade por tenant/session).
 - Fechar debt de ambiente/migrations antes de novas features de billing e automacao.
 - Consolidar contratos de API e remover endpoints duplicados/mocks remanescentes para reduzir ambiguidade.
+
+
