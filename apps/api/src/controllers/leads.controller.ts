@@ -165,6 +165,32 @@ export class LeadsController {
    */
   static async getTopInterests(tenantId: string): Promise<{ interest: string; count: number }[]> {
     try {
+      const extractInterests = (data: Record<string, unknown> | null): string[] => {
+        if (!data) {
+          return [];
+        }
+
+        const candidates = [data.interests, data.interest, data.requirement];
+        const values: string[] = [];
+
+        for (const candidate of candidates) {
+          if (Array.isArray(candidate)) {
+            candidate.forEach((item) => {
+              if (typeof item === 'string' && item.trim()) {
+                values.push(item.trim());
+              }
+            });
+            continue;
+          }
+
+          if (typeof candidate === 'string' && candidate.trim()) {
+            values.push(candidate.trim());
+          }
+        }
+
+        return values;
+      };
+
       const leads = await prisma.lead.findMany({
         where: { tenantId },
         select: { capturedData: true },
@@ -172,13 +198,11 @@ export class LeadsController {
 
       const interestCount: Record<string, number> = {};
       leads.forEach((lead) => {
-        const data = lead.capturedData as Record<string, any> | null;
-        if (data?.interest) {
-          const interests = Array.isArray(data.interest) ? data.interest : [data.interest];
-          interests.forEach((interest: string) => {
-            interestCount[interest] = (interestCount[interest] || 0) + 1;
-          });
-        }
+        const data = lead.capturedData as Record<string, unknown> | null;
+        const interests = extractInterests(data);
+        interests.forEach((interest) => {
+          interestCount[interest] = (interestCount[interest] || 0) + 1;
+        });
       });
 
       return Object.entries(interestCount)
@@ -241,12 +265,23 @@ export class LeadsController {
    */
   static async updateLead(leadId: string, tenantId: string, updates: any): Promise<Lead | null> {
     try {
-      const lead = await prisma.lead.update({
+      const updated = await prisma.lead.updateMany({
         where: {
           id: leadId,
-          tenantId, // Garante que só atualiza leads do tenant
+          tenantId,
         },
         data: updates,
+      });
+
+      if (updated.count === 0) {
+        return null;
+      }
+
+      const lead = await prisma.lead.findFirst({
+        where: {
+          id: leadId,
+          tenantId,
+        },
       });
 
       return lead;
@@ -261,14 +296,14 @@ export class LeadsController {
    */
   static async deleteLead(leadId: string, tenantId: string): Promise<boolean> {
     try {
-      await prisma.lead.delete({
+      const deleted = await prisma.lead.deleteMany({
         where: {
           id: leadId,
-          tenantId, // Garante que só deleta leads do tenant
+          tenantId,
         },
       });
 
-      return true;
+      return deleted.count > 0;
     } catch (error) {
       console.error('Error deleting lead:', error);
       return false;

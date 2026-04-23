@@ -8,10 +8,37 @@ import { invalidateTenantCache } from '../middleware';
 import { logger } from '../lib/logger';
 
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || '';
+const EVENT_TTL_MS = 24 * 60 * 60 * 1000;
+const processedEvents = new Map<string, number>();
+
+function markProcessed(eventId: string): void {
+  processedEvents.set(eventId, Date.now() + EVENT_TTL_MS);
+}
+
+function wasProcessed(eventId: string): boolean {
+  const expiresAt = processedEvents.get(eventId);
+
+  if (!expiresAt) {
+    return false;
+  }
+
+  if (expiresAt < Date.now()) {
+    processedEvents.delete(eventId);
+    return false;
+  }
+
+  return true;
+}
 
 export async function stripeWebhookHandler(req: Request, res: Response): Promise<void> {
   if (req.method !== 'POST') {
     res.status(405).json({ error: 'Method not allowed' });
+    return;
+  }
+
+  if (!STRIPE_WEBHOOK_SECRET) {
+    logger.error('STRIPE_WEBHOOK_SECRET missing - rejecting webhook');
+    res.status(500).json({ error: 'Webhook secret not configured' });
     return;
   }
 
@@ -30,6 +57,11 @@ export async function stripeWebhookHandler(req: Request, res: Response): Promise
   res.status(200).json({ received: true });
 
   try {
+    if (wasProcessed(event.id)) {
+      logger.warn({ eventId: event.id, eventType: event.type }, 'Stripe event ignored: duplicate delivery');
+      return;
+    }
+
     switch (event.type) {
       case 'checkout.session.completed': {
         const session = event.data.object as Stripe.Checkout.Session;
@@ -143,6 +175,8 @@ export async function stripeWebhookHandler(req: Request, res: Response): Promise
             },
           });
         }
+
+        invalidateTenantCache(tenant.id);
         break;
       }
 
@@ -168,6 +202,8 @@ export async function stripeWebhookHandler(req: Request, res: Response): Promise
               paymentFailedCount: 0,
             },
           });
+
+          invalidateTenantCache(tenant.id);
         }
         break;
       }
@@ -175,6 +211,8 @@ export async function stripeWebhookHandler(req: Request, res: Response): Promise
       default:
         console.log(`Unhandled event type: ${event.type}`);
     }
+
+    markProcessed(event.id);
   } catch (error) {
     logger.error({ error }, 'Error processing webhook');
   }

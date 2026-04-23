@@ -26,6 +26,15 @@ interface WahaWebhookBody {
   payload: WahaMessagePayload | Record<string, unknown>;
 }
 
+function isValidWebhookBody(body: unknown): body is WahaWebhookBody {
+  if (!body || typeof body !== 'object') {
+    return false;
+  }
+
+  const value = body as Record<string, unknown>;
+  return typeof value.event === 'string' && typeof value.payload === 'object' && value.payload !== null;
+}
+
 const SESSION_RECOVERY_COOLDOWN_MS = 60_000;
 const sessionRecoveryAttempts = new Map<string, number>();
 
@@ -262,9 +271,14 @@ async function handleSessionStatusEvent(sessionName: string, payload: Record<str
 
 export async function wahaWebhookHandler(req: Request, res: Response): Promise<void> {
   const { sessionName } = req.params;
-  const body = req.body as WahaWebhookBody;
+  const body = req.body as unknown;
 
   res.status(200).json({ received: true });
+
+  if (!isValidWebhookBody(body)) {
+    logger.warn({ sessionName, body }, 'WAHA webhook payload ignored: invalid shape');
+    return;
+  }
 
   console.log(`[webhook] received event="${body.event}" session="${sessionName}"`);
 
@@ -333,7 +347,7 @@ export async function wahaWebhookHandler(req: Request, res: Response): Promise<v
         select: { fullName: true },
       });
       await wahaService.sendMessage(
-        'default',
+        sessionName,
         extractPhoneNumber(payload.from),
         `Ola! ${ownerUser?.fullName || 'voce'} atingiu o limite de mensagens do plano Free. Faça upgrade para o Pro para continuar.`
       );
@@ -511,7 +525,7 @@ export async function wahaWebhookHandler(req: Request, res: Response): Promise<v
 
       for (let attempt = 1; attempt <= 4; attempt++) {
         try {
-          await wahaService.sendMessage('default', phone, responseText);
+          await wahaService.sendMessage(sessionName, phone, responseText);
           sent = true;
           console.log(`[webhook] response sent OK (attempt=${attempt})`);
           break;
@@ -528,11 +542,11 @@ export async function wahaWebhookHandler(req: Request, res: Response): Promise<v
             restartedSessionForSend = true;
             console.warn('[webhook] detached frame detected; restarting WAHA session before retry');
             try {
-              await wahaService.restartSession('default');
-              let isWorking = await waitForSessionWorking('default');
+              await wahaService.restartSession(sessionName);
+              let isWorking = await waitForSessionWorking(sessionName);
               if (!isWorking) {
                 console.warn('[webhook] session not WORKING after restart; trying hard recycle stop/start');
-                isWorking = await hardRecycleSession('default');
+                isWorking = await hardRecycleSession(sessionName);
               }
               console.log(`[webhook] session recovery working=${isWorking}`);
             } catch (restartErr: any) {
@@ -586,3 +600,5 @@ export async function wahaWebhookHandler(req: Request, res: Response): Promise<v
     console.error('[webhook] UNHANDLED ERROR:', error);
   }
 }
+
+
