@@ -1,0 +1,32 @@
+[
+  {
+    "id": "5511999999999",
+    "status": "open",
+    "createdAt": "2026-04-25T23:06:40.137Z",
+    "updatedAt": "2026-04-25T23:06:40.145Z",
+    "messages": [
+      {
+        "id": "1777158400137-83fd9c",
+        "from": "user",
+        "type": "text",
+        "text": "oi",
+        "metadata": {
+          "conversationId": "5511999999999",
+          "type": "text",
+          "text": "oi"
+        },
+        "timestamp": "2026-04-25T23:06:40.137Z"
+      },
+      {
+        "id": "1777158400145-2d4c30",
+        "from": "assistant",
+        "type": "text",
+        "text": "⚠️ OPENAI_API_KEY não configurada. Mensagem recebida: oi\n\n— Assistente Virtual",
+        "metadata": {
+          "reason": "ai_reply"
+        },
+        "timestamp": "2026-04-25T23:06:40.145Z"
+      }
+    ]
+  }
+]

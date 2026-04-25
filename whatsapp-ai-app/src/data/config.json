@@ -1,0 +1,8 @@
+{
+  "openaiModel": "gpt-4.1-mini",
+  "systemPrompt": "Você é um assistente prestativo para atendimento via WhatsApp.",
+  "openaiApiKey": "",
+  "bridgeMode": "mock",
+  "bridgeBaseUrl": "http://whatsapp-bridge:8081",
+  "sessionId": "main"
+}

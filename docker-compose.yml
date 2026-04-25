@@ -1,0 +1,21 @@
+version: '3.9'
+services:
+  whatsapp-ai-app:
+    build:
+      context: ./whatsapp-ai-app
+      dockerfile: Dockerfile
+    environment:
+      - PORT=8080
+    ports:
+      - '8080:8080'
+    depends_on:
+      - whatsapp-bridge
+
+  whatsapp-bridge:
+    build:
+      context: ./whatsapp-bridge
+      dockerfile: Dockerfile
+    environment:
+      - PORT=8081
+    ports:
+      - '8081:8081'
