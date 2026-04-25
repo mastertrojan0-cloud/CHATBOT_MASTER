@@ -1,0 +1,12 @@
+{
+  "automationEnabled": true,
+  "textOnly": true,
+  "businessHoursEnabled": false,
+  "businessHours": { "start": "09:00", "end": "18:00" },
+  "timezone": "America/Sao_Paulo",
+  "offHoursReply": "Nosso horário de atendimento é comercial. Retornamos em breve.",
+  "handoffKeywords": ["humano", "atendente", "suporte humano"],
+  "handoffReply": "Claro! Vou encaminhar para um atendente humano.",
+  "assistantSignature": "\n\n— Assistente Virtual",
+  "contextMessageLimit": 20
+}

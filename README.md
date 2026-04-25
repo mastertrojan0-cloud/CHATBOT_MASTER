@@ -49,3 +49,26 @@ O dashboard publicado na Vercel usa rewrite para a API publicada em Railway.
 - Desenvolvimento local: opcional, apenas para implementar e testar mudancas.
 - Producao: sempre via `git push` para `main`.
 - Se um deploy falhar, verifique primeiro a aba Actions do GitHub e depois os logs da Railway/Vercel.
+
+## WhatsApp AI Project (MVP local)
+
+Este repositório agora inclui uma base funcional em:
+
+- `whatsapp-ai-app` (painel e motor de regras)
+- `whatsapp-bridge` (bridge HTTP com contrato de sessão/QR)
+- `docker-compose.yml` (sobe os dois serviços)
+
+Subida rápida:
+
+```bash
+cd whatsapp-bridge && npm install && cd ..
+node whatsapp-bridge/src/server.mjs
+node whatsapp-ai-app/src/server.mjs
+```
+
+
+Teste automatizado (E2E básico):
+
+```bash
+./scripts/test_whatsapp_ai.sh
+```
